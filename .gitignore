@@ -1,4 +1,10 @@
 Dataset/
+architectures*.md
+# *espnet*/
+*espnet*
+log/
+
+wsl2_Instructions.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -137,9 +143,9 @@ celerybeat.pid
 *.sage.py
 
 # Environments
-.env
+.env*
 .envrc
-.venv
+.venv*
 env/
 venv/
 ENV/
