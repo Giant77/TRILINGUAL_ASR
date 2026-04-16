@@ -21,8 +21,159 @@ CONFIG = {
     "silence_min_len_ms": 500,
 }
 
+
+# ─── SEGMENTED DATASET PROCESSORS ────────────────────────────────────────────
+
+def _process_tsv_segmented(audio_dir: str, seg_map: dict,
+                            lang: str, name: str,
+                            output_dir: str) -> list:
+    """
+    Process datasets where transcripts include start/end timestamps.
+    seg_map: {audio_stem: [(start_sec, end_sec, text), ...]}
+    Extracts audio segments using ffmpeg and writes to output_dir.
+    CHANGES V1: handles Hari Minggoean / Homostoria TSV format
+    """
+    import subprocess
+    os.makedirs(output_dir, exist_ok=True)
+    records = []
+    skipped = 0
+
+    from pathlib import Path as _Path
+    audio_files = {}
+    for ext in ['.mp3', '.wav', '.flac']:
+        for af in _Path(audio_dir).rglob(f'*{ext}'):
+            audio_files[af.stem] = str(af)
+
+    for audio_stem, segments in tqdm(seg_map.items(), desc=f"Segments {name}"):
+        if audio_stem not in audio_files:
+            skipped += len(segments)
+            continue
+        src_audio = audio_files[audio_stem]
+
+        for idx, (start, end, text) in enumerate(segments):
+            duration = end - start
+            if duration < CONFIG["min_duration_sec"]:
+                skipped += 1
+                continue
+            if duration > CONFIG["max_duration_sec"]:
+                skipped += 1
+                continue
+            if not text.strip():
+                skipped += 1
+                continue
+
+            # Sanitize utt_id
+            utt_id  = f"{lang}_{name}_{audio_stem}_{idx:04d}".replace(" ", "_")
+            out_wav = os.path.join(output_dir, f"{utt_id}.wav")
+
+            if not os.path.exists(out_wav):
+                cmd = [
+                    "ffmpeg", "-y", "-i", src_audio,
+                    "-ss", str(start), "-t", str(duration),
+                    "-ar", str(CONFIG["sample_rate"]),
+                    "-ac", "1", "-acodec", "pcm_s16le",
+                    out_wav, "-loglevel", "error"
+                ]
+                result = subprocess.run(cmd, capture_output=True)
+                if result.returncode != 0:
+                    skipped += 1
+                    continue
+
+            actual_dur = get_duration(out_wav)
+            if actual_dur < CONFIG["min_duration_sec"]:
+                os.remove(out_wav)
+                skipped += 1
+                continue
+
+            records.append({
+                "utt_id":   utt_id,
+                "wav_path": out_wav,
+                "text":     text.strip(),
+                "speaker":  f"spk_{name}_{audio_stem[:8]}",
+                "duration": round(actual_dur, 3),
+            })
+
+    print(f"  {name}: {len(records)} segments extracted, {skipped} skipped")
+    return records
+
+
+def _process_escwa_segmented(wav_dir: str, text_map: dict,
+                               seg_map: dict, output_dir: str) -> list:
+    """
+    Process ESCWA: extract segments from long recordings using Kaldi segments file.
+    seg_map: {utt_id: (rec_id, start_sec, end_sec)}
+    text_map: {utt_id: transcript}
+    CHANGES V1: uses Kaldi segments format for timing
+    """
+    import subprocess
+    from pathlib import Path as _Path
+    os.makedirs(output_dir, exist_ok=True)
+    records = []
+    skipped = 0
+
+    wav_files = {}
+    for wf in _Path(wav_dir).rglob('*.wav'):
+        wav_files[wf.stem] = str(wf)
+
+    for utt_id, (rec_id, start, end) in tqdm(seg_map.items(), desc="ESCWA"):
+        if utt_id not in text_map:
+            skipped += 1
+            continue
+
+        # Match recording ID to wav file (partial match)
+        src_wav = wav_files.get(rec_id)
+        if not src_wav:
+            # Try prefix match
+            matches = [v for k, v in wav_files.items() if rec_id in k or k in rec_id]
+            src_wav = matches[0] if matches else None
+        if not src_wav:
+            skipped += 1
+            continue
+
+        duration = end - start
+        if duration < CONFIG["min_duration_sec"] or \
+           duration > CONFIG["max_duration_sec"]:
+            skipped += 1
+            continue
+
+        out_wav = os.path.join(output_dir, f"{utt_id.replace('/', '_')}.wav")
+        if not os.path.exists(out_wav):
+            cmd = [
+                "ffmpeg", "-y", "-i", src_wav,
+                "-ss", str(start), "-t", str(duration),
+                "-ar", str(CONFIG["sample_rate"]),
+                "-ac", "1", "-acodec", "pcm_s16le",
+                out_wav, "-loglevel", "error"
+            ]
+            r = subprocess.run(cmd, capture_output=True)
+            if r.returncode != 0:
+                skipped += 1
+                continue
+
+        actual_dur = get_duration(out_wav)
+        if actual_dur < CONFIG["min_duration_sec"]:
+            os.remove(out_wav)
+            skipped += 1
+            continue
+
+        records.append({
+            "utt_id":   utt_id.replace('/', '_'),
+            "wav_path": out_wav,
+            "text":     text_map[utt_id].strip(),
+            "speaker":  f"spk_escwa_{rec_id[:8]}",
+            "duration": round(actual_dur, 3),
+        })
+
+    print(f"  ESCWA: {len(records)} segments, {skipped} skipped")
+    return records
+
 def convert_to_wav(input_path: str, output_path: str) -> bool:
-    """Convert any audio to 16kHz mono WAV using ffmpeg."""
+    """
+    Convert any audio to 16kHz mono WAV using ffmpeg.
+
+    Returns:
+        bool: True if conversion succeeds, False otherwise.
+    """
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
         "-ar", str(CONFIG["sample_rate"]),
@@ -31,8 +182,13 @@ def convert_to_wav(input_path: str, output_path: str) -> bool:
         output_path,
         "-loglevel", "error"
     ]
-    result = subprocess.run(cmd, capture_output=True)
-    return result.returncode == 0
+    # result = subprocess.run(cmd, capture_output=True)
+    result = subprocess.run(cmd)
+
+    if result.returncode != 0:
+        print(f"Error: ffmpeg failed to convert {input_path} to {output_path}. stderr: {result.stderr.decode().strip()}")
+        return False
+    return True
 
 def get_duration(wav_path: str) -> float:
     """Get audio duration in seconds using ffprobe."""
@@ -171,7 +327,7 @@ def process_dataset(input_dir: str, output_dir: str,
     for ext in ['.wav', '.mp3', '.flac', '.ogg']:
         audio_files.extend(Path(input_dir).rglob(f'*{ext}'))
 
-    for audio_path in tqdm(audio_files, desc=f"Processing {dataset_name}"):
+    for audio_path in tqdm(audio_files, desc=f"Processing {dataset_name}", mininterval=5, maxinterval=20):
         stem = audio_path.stem
         if stem not in transcript_map:
             skipped += 1
@@ -194,6 +350,7 @@ def process_dataset(input_dir: str, output_dir: str,
         if duration < CONFIG["min_duration_sec"]:
             os.remove(out_wav)
             skipped += 1
+            print(f"  Skipped {utt_id}: duration {duration:.2f}s < min {CONFIG['min_duration_sec']}s")
             continue
 
         if duration > CONFIG["max_duration_sec"]:
@@ -245,7 +402,7 @@ def process_podcast_segments(data_dir: str, output_dir: str,
             audio_index[f.stem.lower()] = str(f)
 
     for i, rec in enumerate(tqdm(segment_records,
-                                   desc=f"Segments {dataset_name}")):
+                                   desc=f"Segments {dataset_name}"), mininterval=5, maxinterval=20):
         audio_stem = rec['audio_stem']
         start_sec  = rec['start_sec']
         end_sec    = rec['end_sec']

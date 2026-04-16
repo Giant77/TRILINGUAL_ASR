@@ -7,13 +7,17 @@ NEW: Manifest JSON used for Kaldi script generation in Phase 2
 import json
 import os
 from pathlib import Path
-from preprocess_audio import process_dataset, process_podcast_segments  
+from preprocess_audio import (
+    process_dataset, _process_tsv_segmented,
+    _process_escwa_segmented
+)  
 from load_transcripts import (
     load_mozilla_cv, load_fleurs, load_titml_idn,
     load_librivox_id, load_seacrowd_indocsc,
     load_seacrowd_sindodsc, load_clartts,
-    load_escwa, load_hari_minggoean, load_homostoria,
-    load_mozilla_spontant
+    load_escwa, load_hari_minggoean, load_homostoria, 
+    load_librispeech_parquet, load_escwa_segments,
+    _process_escwa_segmented, load_mozilla_spontant
 )
 
 BASE_DATASET = r"D:\FYP\Trilingual_ASR\Dataset"  # CHANGE THIS
@@ -129,31 +133,33 @@ all_records['ar_fleurs'] = process_dataset(
     os.path.join(BASE_OUT, "ar", "fleurs"),
     "ar", "fleurs", fleurs_ar_map)
 
-# 9. ClArTTS
+# 9. ClArTTS — parquet with audio bytes
 print("[AR] ClArTTS")
 clartts_dir = os.path.join(BASE_DATASET, "ar", "ClArTTS")
 clartts_map = load_clartts(clartts_dir)
+clartts_extracted = os.path.join(clartts_dir, "extracted")
+
 all_records['ar_clartts'] = process_dataset(
-    clartts_dir, os.path.join(BASE_OUT, "ar", "clartts"),
+    clartts_extracted,
+    os.path.join(BASE_OUT, "ar", "clartts"),
     "ar", "clartts", clartts_map)
 
 # ─── ENGLISH ─────────────────────────────────────────────────────────────────
 
 # 10. LibriSpeech
 print("[EN] LibriSpeech")
-# NOTE: LibriSpeech uses chapter-level trans files; see INFO REQUEST IR-5
-# Placeholder — adapt based on actual directory structure
+# CHANGES V1 — replace LibriSpeech section (was: .trans.txt flat file loader)
+# changes the following on [EN] LibriSpeech section to:
+
+# 10. LibriSpeech — HuggingFace parquet
+print("[EN] LibriSpeech")
 libri_dir = os.path.join(BASE_DATASET, "en", "librispeech", "Data")
-# LibriSpeech trans files are: SPEAKER/CHAPTER/SPEAKER-CHAPTER.trans.txt
-libri_map = {}
-for trans_file in Path(libri_dir).rglob('*.trans.txt'):
-    with open(trans_file, encoding='utf-8') as f:
-        for line in f:
-            parts = line.strip().split(maxsplit=1)
-            if len(parts) == 2:
-                libri_map[parts[0]] = parts[1].lower()
+# CHANGES V1: load_librispeech_parquet extracts WAVs to Data/extracted/
+libri_map = load_librispeech_parquet(libri_dir)
+libri_extracted = os.path.join(libri_dir, "extracted")
 all_records['en_librispeech'] = process_dataset(
-    libri_dir, os.path.join(BASE_OUT, "en", "librispeech"),
+    libri_extracted,
+    os.path.join(BASE_OUT, "en", "librispeech"),
     "en", "librispeech", libri_map)
 
 # 11. FLEURS EN
@@ -169,6 +175,7 @@ all_records['en_fleurs'] = process_dataset(
     os.path.join(BASE_OUT, "en", "fleurs"),
     "en", "fleurs", fleurs_en_map)
 
+# 12. CV spon EN
 print("[EN] Mozilla Spontaneous")
 cv_en_spon_dir = os.path.join(BASE_DATASET, "en", "mozilla", "sps-corpus-1.0-2025-11-25-en")
 
@@ -182,41 +189,42 @@ all_records['en_cv_spon'] = process_dataset(
 
 # ─── CODE-SWITCHING ───────────────────────────────────────────────────────────
 
-# # 13. ESCWA (AR-EN)
+# 13. ESCWA — Kaldi segments + text files
 print("[CS] ESCWA")
-escwa_dir = os.path.join(BASE_DATASET, "CS", "ar-en", "escwa",
-                          "cs.released")
-escwa_map = load_escwa(escwa_dir)
-all_records['cs_escwa'] = process_dataset(
-    os.path.join(escwa_dir, "wav"),
-    os.path.join(BASE_OUT, "cs", "escwa"),
-    "cs", "escwa", escwa_map)
+escwa_dir = os.path.join(BASE_DATASET, "CS", "ar-en", "escwa", "cs.released")
+escwa_map  = load_escwa(escwa_dir)
+escwa_segs = load_escwa_segments(escwa_dir)
+escwa_wav_dir = os.path.join(escwa_dir, "wav")
 
-# 14. Hari Minggoean (ID-EN) — NOTE: space in path
+# CHANGES V1: ESCWA has pre-defined utterance IDs in segments/text files.
+# Audio files in wav/ are full recordings; we must extract segments.
+escwa_records = _process_escwa_segmented(
+    escwa_wav_dir, escwa_map, escwa_segs,
+    os.path.join(BASE_OUT, "cs", "escwa"))
+all_records['cs_escwa'] = escwa_records
+
+
+# CHANGES V1 — replace Hari Minggoean section
+# changes the following on [CS] Hari Minggoean section to:
+
+# 14. Hari Minggoean — TSV-segmented (Audio file / Start / End / Text)
 print("[CS] Hari Minggoean")
 hari_dir = os.path.join(BASE_DATASET, "CS", "id-en", "Hari Minggoean", "2")
-hari_segments = load_hari_minggoean(hari_dir)
-all_records['cs_hari'] = process_podcast_segments(
-    hari_dir, os.path.join(BASE_OUT, "cs", "hari_minggoean"),
-    "cs", "hari", hari_segments)
-print(f"  Hari Minggoean total segments loaded from TSV: {len(hari_segments)}")
+# CHANGES V1: returns {audio_stem: [(start, end, text), ...]}
+hari_seg_map = load_hari_minggoean(hari_dir)
+hari_records = _process_tsv_segmented(
+    hari_dir, hari_seg_map, "cs", "hari",
+    os.path.join(BASE_OUT, "cs", "hari_minggoean"))
+all_records['cs_hari'] = hari_records
 
-# 15. Homostoria (ID-EN)
+# 15. Homostoria — same structure
 print("[CS] Homostoria")
 homo_dir = os.path.join(BASE_DATASET, "CS", "id-en", "homostoria", "homostoria")
-homo_segments = load_homostoria(homo_dir)
-if homo_segments and isinstance(homo_segments[0], dict) \
-        and 'start_sec' in homo_segments[0]:
-    # NEW: Homostoria has same TSV format → use segment extractor
-    all_records['cs_homostoria'] = process_podcast_segments(
-        homo_dir, os.path.join(BASE_OUT, "cs", "homostoria"),
-        "cs", "homostoria", homo_segments)
-else:
-    # Fallback: Homostoria has flat stem→text format (unconfirmed)
-    all_records['cs_homostoria'] = process_dataset(
-        homo_dir, os.path.join(BASE_OUT, "cs", "homostoria"),
-        "cs", "homostoria", homo_segments)
-    # NEW: IR-7 — Homostoria TSV format unconfirmed (see info request below)
+homo_seg_map = load_homostoria(homo_dir)
+homo_records = _process_tsv_segmented(
+    homo_dir, homo_seg_map, "cs", "homostoria",
+    os.path.join(BASE_OUT, "cs", "homostoria"))
+all_records['cs_homostoria'] = homo_records
 
 # ─── SAVE MANIFESTS ──────────────────────────────────────────────────────────
 
@@ -227,4 +235,9 @@ for key, records in all_records.items():
     print(f"Saved manifest: {out_path} ({len(records)} utterances)")
 
 print("\nPreprocessing complete. Transfer processed/ to WSL next.")
+
+# Run via windows:
 # python run_preprocessing.py 2>&1 | Tee-Object -FilePath preprocessing_log.txt
+
+# Run via linux:
+# python run_preprocessing.py 2>&1 | tee preprocessing_log.txt

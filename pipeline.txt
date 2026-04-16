@@ -1,0 +1,56 @@
+# SETUP dirs
+mkdir egs2/trilang_asr
+
+task=asr1
+egs2/TEMPLATE/${task}/setup.sh egs2/trilang_asr/${task}
+
+# create symlink data to download
+
+# create manifest_to_kaldi, then run
+python local/manifests_to_kaldi.py
+
+
+=======
+NOTES:
+# CHANGES V1 — add SERVER NOTE block to conf/train_asr_conformer_s.yaml
+# changes the following after encoder_conf block to:
+
+# ─── GPU CONFIG GUIDE ────────────────────────────────────────────────────────
+# Current config (Conformer-S, d_model=256):
+#   RTX 4050 Laptop 6GB  → batch_bins: 4000000  OK  ~5.5GB used
+#   RTX 2080 8GB         → batch_bins: 6000000  OK  ~6.5GB used
+#   2 parallel on 2×2080 → batch_bins: 6000000, ngpu=1 per job  RECOMMENDED
+#
+# For single model on 1×RTX 2080 (full capacity, Conformer-M):
+#   Change: output_size: 512, num_blocks: 12, attention_heads: 8
+#   Change: batch_bins: 10000000
+#   Expected WER improvement: ~1-2% absolute vs Conformer-S (marginal for TA)
+#   Training time: ~2× slower than Conformer-S
+#
+# For 2×RTX 2080 DDP (ngpu=2, 1 model):
+#   Set: ngpu=2 in run_exp1_tri.sh
+#   Effective batch = 2 × batch_bins → faster epoch time
+#   BUT: synchronization overhead; only beneficial for tri model (large data)
+#   For mono models: keep ngpu=1 (data too small to benefit from DDP)
+#
+# RECOMMENDATION for TA timeline (Maret–Mei 2026):
+#   Train 3 mono models in parallel (1 GPU each) simultaneously.
+#   Then train tri model alone on 1-2 GPUs.
+#   Total estimated time on server:
+#     Mono (ID+AR+EN parallel): ~3-5 days
+#     Tri base:                 ~5-7 days
+#     CS fine-tune (A+B):      ~1-2 days each
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# CHANGES V1 — add to conf/finetune_asr_cs.yaml
+# changes the following after optim_conf block to:
+
+# ─── FINE-TUNING SERVER NOTE ─────────────────────────────────────────────────
+# Fine-tuning is fast (~1-2 days per approach on RTX 2080).
+# Run Approach A and B in parallel on separate GPUs simultaneously:
+#   CUDA_VISIBLE_DEVICES=0 ./run_exp3_cs.sh --approach A &
+#   CUDA_VISIBLE_DEVICES=1 ./run_exp3_cs.sh --approach B &
+# Lower LR (0.0001) and fewer epochs (20) designed for this.
+# If GPU OOM during fine-tuning: reduce batch_bins to 3000000
+# ─────────────────────────────────────────────────────────────────────────────
