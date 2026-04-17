@@ -11,6 +11,10 @@ python local/manifests_to_kaldi.py
 
 
 =======
+epoch: 50 or more
+WER: <30; target <20
+
+
 NOTES:
 # CHANGES V1 — add SERVER NOTE block to conf/train_asr_conformer_s.yaml
 # changes the following after encoder_conf block to:

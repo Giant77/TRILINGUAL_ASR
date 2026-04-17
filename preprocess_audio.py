@@ -286,20 +286,23 @@ def process_dataset(input_dir: str, output_dir: str,
             for seg_path, seg_text in segments:
                 seg_id = os.path.splitext(os.path.basename(seg_path))[0]
                 seg_dur = get_duration(seg_path)
+
                 records.append({
-                    "utt_id": seg_id,
-                    "wav_path": seg_path,
-                    "text": seg_text.strip().lower() if lang != "ar" else seg_text.strip(),
-                    "speaker": f"spk_{dataset_name}_{stem[:6]}",
-                    "duration": round(seg_dur, 3)
+                    "utt_id":      seg_id,
+                    "wav_path":    seg_path,
+                    "text":        seg_text.strip().lower() if lang != "ar" else seg_text.strip(),
+                    "speaker":     f"spk_{dataset_name}_{stem[:6]}",
+                    "duration":    round(seg_dur, 3),
+                    "source_stem": stem,    # CHANGES V2
                 })
         else:
             records.append({
-                "utt_id": utt_id,
-                "wav_path": out_wav,
-                "text": transcript.strip().lower() if lang != "ar" else transcript.strip(),
-                "speaker": f"spk_{dataset_name}_{stem[:6]}",
-                "duration": round(duration, 3)
+                "utt_id":      utt_id,
+                "wav_path":    out_wav,
+                "text":        transcript.strip().lower() if lang != "ar" else transcript.strip(),
+                "speaker":     f"spk_{dataset_name}_{stem[:6]}",
+                "duration":    round(duration, 3),
+                "source_stem": stem,    # CHANGES V2: for split membership assignment
             })
 
     print(f"  {dataset_name}: {len(records)} processed, {skipped} skipped")
