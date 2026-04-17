@@ -57,9 +57,19 @@ def load_fleurs(tsv_path: str) -> dict:
     Load FLEURS TSV.
     Returns: {file_stem: raw_transcription}
     """
+    fieldnames = [
+        "id",
+        "file_name",
+        "raw_transcription",
+        "transcription",
+        "phonemes",
+        "num_samples",
+        "gender",
+    ]
+    
     result = {}
     with open(tsv_path, encoding='utf-8', newline='') as f:
-        reader = csv.DictReader(f, delimiter='\t')
+        reader = csv.DictReader(f, delimiter='\t', fieldnames=fieldnames)
         for row in reader:
             stem = os.path.splitext(row['file_name'])[0]
             result[stem] = row.get('raw_transcription',

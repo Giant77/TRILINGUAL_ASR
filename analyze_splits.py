@@ -2,7 +2,7 @@
 analyze_splits.py — v2 (CHANGES V2)
 Reads split-aware manifests (already split; no simulation needed).
 Reports split source, actual counts, and actual ratio per dataset.
-NEW: Shows ✓ PREDETERMINED vs → SPLIT 8:1:1 distinction clearly.
+NEW: Shows OK PREDETERMINED vs CHANGES SPLIT 8:1:1 distinction clearly.
 """
 import json
 import os
@@ -19,9 +19,9 @@ LANG_GROUPS = {
 }
 
 SPLIT_LABELS = {
-    'predetermined_full':           '✓  PREDETERMINED (full train/dev/test)',
-    'predetermined_partial_carved': '⚠  PREDETERMINED PARTIAL (dev carved)',
-    '8_1_1':                        '→  APPLIED 8:1:1 (no original splits)',
+    'predetermined_full':           'OK  PREDETERMINED (full train/dev/test)',
+    'predetermined_partial_carved': 'WARNING  PREDETERMINED PARTIAL (dev carved)',
+    '8_1_1':                        'CHANGES  APPLIED 8:1:1 (no original splits)',
 }
 
 
@@ -64,9 +64,9 @@ def main():
         "TrilangSR — Data Split Report (CHANGES V2)",
         "=" * 68,
         "Split source key:",
-        "  ✓ PREDETERMINED (full)   — original train/dev/test preserved",
-        "  ⚠ PREDETERMINED PARTIAL  — had train+test only; dev carved",
-        "  → APPLIED 8:2:1          — no original splits; speaker-indep. split",
+        "  OK PREDETERMINED (full)   — original train/dev/test preserved",
+        "  WARNING PREDETERMINED PARTIAL  — had train+test only; dev carved",
+        "  CHANGES APPLIED 8:2:1          — no original splits; speaker-indep. split",
         "=" * 68,
     ]
 

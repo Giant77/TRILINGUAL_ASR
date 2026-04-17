@@ -10,9 +10,9 @@ Manifest format per dataset:
   }
 
 split_source values:
-  "predetermined_full"           — original train/dev/test preserved as-is
-  "predetermined_partial_carved" — original train+test; dev carved for ≈8:1:1
-  "8_1_1"                        — no predetermined splits; speaker-independent split
+  "predetermined_full"           - original train/dev/test preserved as-is
+  "predetermined_partial_carved" - original train+test; dev carved for ≈8:1:1
+  "8_1_1"                        - no predetermined splits; speaker-independent split
 """
 
 import io
@@ -33,7 +33,7 @@ from load_transcripts import (
 )
 
 
-# ─── PATHS — CHANGE THESE ────────────────────────────────────────────────────
+# ─── PATHS - CHANGE THESE ────────────────────────────────────────────────────
 BASE_DATASET = r"D:\FYP\Trilingual_ASR\Dataset"
 BASE_OUT     = r"D:\FYP\Trilingual_ASR\Dataset\processed"
 
@@ -170,9 +170,9 @@ def save_manifest(key: str, lang: str,
         f"{s}={counts[s]:,} ({ratio[s]*100:.1f}%)" for s in ['train', 'dev', 'test']
     )
     split_tag = {
-        'predetermined_full':           '✓ PREDETERMINED (full)',
-        'predetermined_partial_carved': '⚠ PREDETERMINED (partial→carved dev)',
-        '8_1_1':                        '→ SPLIT 8:2:1 (no original splits)',
+        'predetermined_full':           'OK: PREDETERMINED (full)',
+        'predetermined_partial_carved': 'WARNING: PREDETERMINED (partial→carved dev)',
+        '8_1_1':                        'CHANGES: SPLIT 8:2:1 (no original splits)',
     }.get(split_source, split_source)
 
     print(f"\n  [{key}] {split_tag}")
@@ -305,28 +305,28 @@ print("\n" + "="*60)
 print("INDONESIAN")
 print("="*60)
 
-# ── id_cv : PREDETERMINED FULL ───────────────────────────────────────────────
-print("\n[id_cv] Mozilla Common Voice ID v24.0")
-cv_id_root  = os.path.join(BASE_DATASET, "id", "mozilla", "scripted-id",
-                            "cv-corpus-24.0-2025-12-05", "id")
-cv_id_clips = os.path.join(cv_id_root, "clips")
+# # ── id_cv : PREDETERMINED FULL ───────────────────────────────────────────────
+# print("\n[id_cv] Mozilla Common Voice ID v24.0")
+# cv_id_root  = os.path.join(BASE_DATASET, "id", "mozilla", "scripted-id",
+#                             "cv-corpus-24.0-2025-12-05", "id")
+# cv_id_clips = os.path.join(cv_id_root, "clips")
 
-split_records_cv_id = {}
-for split in ['train', 'dev', 'test']:
-    tsv = os.path.join(cv_id_root, f"{split}.tsv")
-    if os.path.exists(tsv):
-        m = load_mozilla_cv(tsv)
-        recs = process_dataset(cv_id_clips,
-                               os.path.join(BASE_OUT, "id", "cv", split),
-                               "id", f"cv_{split}", m)
-        split_records_cv_id[split] = recs
-    else:
-        print(f"  WARN: {tsv} not found — split '{split}' empty")
-        split_records_cv_id[split] = []
+# split_records_cv_id = {}
+# for split in ['train', 'dev', 'test']:
+#     tsv = os.path.join(cv_id_root, f"{split}.tsv")
+#     if os.path.exists(tsv):
+#         m = load_mozilla_cv(tsv)
+#         recs = process_dataset(cv_id_clips,
+#                                os.path.join(BASE_OUT, "id", "cv", split),
+#                                "id", f"cv_{split}", m)
+#         split_records_cv_id[split] = recs
+#     else:
+#         print(f"  WARN: {tsv} not found - split '{split}' empty")
+#         split_records_cv_id[split] = []
 
-save_manifest('id_cv', 'id', 'predetermined_full',
-              'Mozilla CV ID v24.0 — TSV train/dev/test preserved',
-              split_records_cv_id)
+# save_manifest('id_cv', 'id', 'predetermined_full',
+#               'Mozilla CV ID v24.0 - TSV train/dev/test preserved',
+#               split_records_cv_id)
 
 # ── id_fleurs : PREDETERMINED FULL ───────────────────────────────────────────
 print("\n[id_fleurs] FLEURS ID")
@@ -343,11 +343,11 @@ for split in ['train', 'dev', 'test']:
                                "id", f"fleurs_{split}", m)
         split_records_fleurs_id[split] = recs
     else:
-        print(f"  WARN: FLEURS ID split '{split}' — tsv or audio dir missing")
+        print(f"  WARN: FLEURS ID split '{split}' - tsv or audio dir missing")
         split_records_fleurs_id[split] = []
 
 save_manifest('id_fleurs', 'id', 'predetermined_full',
-              'FLEURS ID — audio/train|dev|test dirs + TSV preserved',
+              'FLEURS ID - audio/train|dev|test dirs + TSV preserved',
               split_records_fleurs_id)
 
 # ── id_librivox : PREDETERMINED PARTIAL ──────────────────────────────────────
@@ -368,7 +368,7 @@ librivox_test  = process_dataset(
     "id", "librivox_test", load_librivox_id(test_meta))
 
 save_manifest('id_librivox', 'id', 'predetermined_partial_carved',
-              'Librivox ID — metadata_train/test CSV; dev carved from train (78:22) for ≈7:2:1',
+              'Librivox ID - metadata_train/test CSV; dev carved from train (78:22) for ≈7:2:1',
               split_partial_carve_dev(librivox_train, librivox_test))
 
 # ── id_titml : 8:1:1 ─────────────────────────────────────────────────────────
@@ -380,7 +380,7 @@ titml_all = process_dataset(titml_dir,
                              "id", "titml", titml_map)
 
 save_manifest('id_titml', 'id', '8_1_1',
-              'TITML-IDN — speaker dirs only; speaker-independent 8:1:1 applied',
+              'TITML-IDN - speaker dirs only; speaker-independent 8:1:1 applied',
               split_data(titml_all))
 
 # ── id_indocsc : 8:1:1 ───────────────────────────────────────────────────────
@@ -395,7 +395,7 @@ indocsc_all = process_dataset(indocsc_wav,
                                load_seacrowd_indocsc(indocsc_wav, indocsc_txt))
 
 save_manifest('id_indocsc', 'id', '8_1_1',
-              'SEACrowd IndoCSC — no predetermined splits; 8:1:1 applied',
+              'SEACrowd IndoCSC - no predetermined splits; 8:1:1 applied',
               split_data(indocsc_all))
 
 # ── id_sindodsc : 8:1:1 ──────────────────────────────────────────────────────
@@ -408,7 +408,7 @@ sindodsc_all = process_dataset(sindodsc_wav,
                                 load_seacrowd_sindodsc(sindodsc_wav))
 
 save_manifest('id_sindodsc', 'id', '8_1_1',
-              'SEACrowd SIndoDuSC — WAV only; 8:1:1 applied (no transcript source confirmed)',
+              'SEACrowd SIndoDuSC - WAV only; 8:1:1 applied (no transcript source confirmed)',
               split_data(sindodsc_all))
 
 # ─── ARABIC DATASETS ─────────────────────────────────────────────────────────
@@ -437,7 +437,7 @@ for split in ['train', 'dev', 'test']:
         split_records_cv_ar[split] = []
 
 save_manifest('ar_cv', 'ar', 'predetermined_full',
-              'Mozilla CV AR v24.0 — TSV train/dev/test preserved',
+              'Mozilla CV AR v24.0 - TSV train/dev/test preserved',
               split_records_cv_ar)
 
 # ── ar_fleurs : PREDETERMINED FULL ───────────────────────────────────────────
@@ -459,7 +459,7 @@ for split in ['train', 'dev', 'test']:
         split_records_fleurs_ar[split] = []
 
 save_manifest('ar_fleurs', 'ar', 'predetermined_full',
-              'FLEURS AR — audio/train|dev|test dirs preserved',
+              'FLEURS AR - audio/train|dev|test dirs preserved',
               split_records_fleurs_ar)
 
 # ── ar_clartts : PREDETERMINED PARTIAL ───────────────────────────────────────
@@ -483,7 +483,7 @@ clartts_test_all  = process_dataset(clartts_extracted,
                                      "ar", "clartts_test", clartts_test_map)
 
 save_manifest('ar_clartts', 'ar', 'predetermined_partial_carved',
-              'ClArTTS — train-*.parquet + test-*.parquet; dev carved from train for ≈7:2:1',
+              'ClArTTS - train-*.parquet + test-*.parquet; dev carved from train for ≈7:2:1',
               split_partial_carve_dev(clartts_train_all, clartts_test_all))
 
 # ─── ENGLISH DATASETS ────────────────────────────────────────────────────────
@@ -502,7 +502,7 @@ libri_all = process_dataset(libri_extracted,
                              "en", "librispeech", libri_map)
 
 save_manifest('en_librispeech', 'en', '8_1_1',
-              'LibriSpeech clean-100 HF parquet — all from train-clean-100; 8:1:1 applied',
+              'LibriSpeech clean-100 HF parquet - all from train-clean-100; 8:1:1 applied',
               split_data(libri_all))
 
 # ── en_fleurs : PREDETERMINED FULL ───────────────────────────────────────────
@@ -524,7 +524,7 @@ for split in ['train', 'dev', 'test']:
         split_records_fleurs_en[split] = []
 
 save_manifest('en_fleurs', 'en', 'predetermined_full',
-              'FLEURS EN — audio/train|dev|test dirs preserved',
+              'FLEURS EN - audio/train|dev|test dirs preserved',
               split_records_fleurs_en)
 
 # ── en_cv_spon : 8:1:1 ───────────────────────────────────────────────────────
@@ -539,7 +539,7 @@ cv_en_all = process_dataset(os.path.join(cv_en_dir, "audios"),
                              "en", "cv_spon", cv_en_map)
 
 save_manifest('en_cv_spon', 'en', '8_1_1',
-              'Mozilla CV EN Spontaneous v1.0 — single corpus; 8:1:1 applied',
+              'Mozilla CV EN Spontaneous v1.0 - single corpus; 8:1:1 applied',
               split_data(cv_en_all))
 
 # ─── CODE-SWITCHING DATASETS ─────────────────────────────────────────────────
@@ -559,7 +559,7 @@ escwa_all = _process_escwa_segmented(
     os.path.join(BASE_OUT, "cs", "escwa"))
 
 save_manifest('cs_escwa', 'cs', '8_1_1',
-              'QCRI ESCWA — Kaldi segments+text; no predetermined splits; 8:1:1 applied',
+              'QCRI ESCWA - Kaldi segments+text; no predetermined splits; 8:1:1 applied',
               split_data(escwa_all))
 
 # ── cs_hari : 8:1:1 ──────────────────────────────────────────────────────────
@@ -570,7 +570,7 @@ hari_all     = _process_tsv_segmented(hari_dir, hari_seg_map, "cs", "hari",
                                        os.path.join(BASE_OUT, "cs", "hari_minggoean"))
 
 save_manifest('cs_hari', 'cs', '8_1_1',
-              'Hari Minggoean — TSV segments (Audio file/Start/End/Text); 8:1:1 applied',
+              'Hari Minggoean - TSV segments (Audio file/Start/End/Text); 8:1:1 applied',
               split_data(hari_all))
 
 # ── cs_homostoria : 8:1:1 ────────────────────────────────────────────────────
@@ -581,7 +581,7 @@ homo_all     = _process_tsv_segmented(homo_dir, homo_seg_map, "cs", "homostoria"
                                        os.path.join(BASE_OUT, "cs", "homostoria"))
 
 save_manifest('cs_homostoria', 'cs', '8_1_1',
-              'Homostoria — TSV segments; 8:1:1 applied',
+              'Homostoria - TSV segments; 8:1:1 applied',
               split_data(homo_all))
 
 print("\n" + "="*60)
@@ -590,7 +590,9 @@ print("Next: run local/manifests_to_kaldi.py")
 print("="*60)
 
 # Run via windows/powershell:
-# python run_preprocessing.py 2>&1 | Tee-Object -FilePath log/preprocessing_log.txt
+# overwrite : python run_preprocessing.py 2>&1 | Tee-Object -FilePath log/preprocessing_log.txt
+# append    : python run_preprocessing.py 2>&1 | Tee-Object -FilePath log/preprocessing_log.txt -Append
 
 # Run via linux:
-# python run_preprocessing.py 2>&1 | tee log/preprocessing_log.txt
+# overwrite : python run_preprocessing.py 2>&1 | tee log/preprocessing_log.txt
+# append    : python run_preprocessing.py 2>&1 | tee -a log/preprocessing_log.txt
