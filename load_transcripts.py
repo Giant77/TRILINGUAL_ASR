@@ -46,6 +46,7 @@ def load_mozilla_cv(tsv_path: str) -> dict:
     with open(tsv_path, encoding='utf-8', newline='') as f:
         reader = csv.DictReader(f, delimiter='\t')
         for row in reader:
+            # 'path' field may include .mp3 extension
             stem = os.path.splitext(row['path'])[0]
             result[stem] = row['sentence']
     return result
@@ -141,7 +142,10 @@ def load_titml_idn(data_dir: str) -> dict:
 
 
 def load_librivox_id(metadata_csv: str) -> dict:
-    """Load Librivox Indonesia metadata CSV. Returns {audio_stem: sentence}."""
+    """
+    Load Librivox Indonesia metadata CSV.
+    Returns {audio_stem: sentence}.
+    """
     result = {}
     with open(metadata_csv, encoding='utf-8', newline='') as f:
         reader = csv.DictReader(f)
@@ -156,7 +160,10 @@ def load_librivox_id(metadata_csv: str) -> dict:
 
 
 def load_seacrowd_indocsc(wav_dir: str, txt_dir: str) -> dict:
-    """Load SEACrowd ASR-IndoCSC. Returns {audio_stem: transcript}."""
+    """
+    Load SEACrowd ASR-IndoCSC.
+    Returns {audio_stem: transcript}.
+    """
     result = {}
     for txt_file in Path(txt_dir).glob('*.txt'):
         with open(txt_file, encoding='utf-8') as f:
@@ -164,67 +171,30 @@ def load_seacrowd_indocsc(wav_dir: str, txt_dir: str) -> dict:
     return result
 
 
-def load_seacrowd_sindodsc(wav_root: str) -> dict:
+def load_seacrowd_sindodsc(dataset_root: str) -> dict:
     """
-    Load SEACrowd ASR-SIndoDuSC.  CHANGES V1
-    WAV subdirs contain only .wav files — no adjacent .txt/.lab.
-    Searches for transcript files in parent directories:
-      1. Parent dir CSV with columns: id/filename/wav_path + sentence/text/transcript
-      2. Parent dir JSON manifest
-      3. Any .txt with matching lines
-    Falls back to empty dict (with warning) if nothing found.
-    Returns: {audio_stem: transcript}
+    Load SEACrowd ASR-SIndoDuSC transcripts from UTTRANSINFO.txt.
+    File location: <dataset_root>/UTTRANSINFO.txt
+    Columns (tab-sep): CHANNEL  UTTRANS_ID  SPEAKER_ID  PROMPT  TRANSCRIPTION
+    UTTRANS_ID is the wav filename, e.g. G0004_0_S0001.wav
+    Returns: {wav_stem: transcription}
+    NEW: UTTRANSINFO.txt confirmed as authoritative transcript source
     """
     result = {}
-    wav_root_path = Path(wav_root)
-    parent = wav_root_path.parent
+    info_path = os.path.join(dataset_root, 'UTTRANSINFO.txt')
+    if not os.path.exists(info_path):
+        print(f"  WARN: UTTRANSINFO.txt not found at {info_path}")
+        return result
 
-    # ── Search parent dir for transcript file ─────────────────────────────
-    for search_dir in [wav_root_path, parent, parent.parent]:
-        # CSV
-        for csv_file in search_dir.glob('*.csv'):
-            try:
-                with open(csv_file, encoding='utf-8', newline='') as f:
-                    reader = csv.DictReader(f)
-                    cols = reader.fieldnames or []
-                    path_col = next((c for c in cols if c.lower() in
-                                     ['path','file','filename','id','utt_id']), None)
-                    text_col = next((c for c in cols if c.lower() in
-                                     ['sentence','text','transcript','transcription']), None)
-                    if path_col and text_col:
-                        for row in reader:
-                            stem = os.path.splitext(
-                                os.path.basename(row[path_col]))[0]
-                            result[stem] = row[text_col]
-                if result:
-                    print(f"  [SIndoDuSC] Transcripts from: {csv_file}")
-                    return result
-            except Exception:
-                continue
-
-        # JSON
-        for json_file in search_dir.glob('*.json'):
-            try:
-                with open(json_file, encoding='utf-8') as f:
-                    data = json.load(f)
-                if isinstance(data, list):
-                    for item in data:
-                        if 'utt_id' in item and 'text' in item:
-                            result[item['utt_id']] = item['text']
-                elif isinstance(data, dict):
-                    result.update(data)
-                if result:
-                    print(f"  [SIndoDuSC] Transcripts from: {json_file}")
-                    return result
-            except Exception:
-                continue
-
-    if not result:
-        print("  WARN [SIndoDuSC]: No transcript file found in parent dirs.")
-        print("  WARN: Processing will skip all SIndoDuSC utterances.")
-        print(f"  WARN: Searched: {wav_root_path}, {parent}, {parent.parent}")
-        # NEW: IR still open — request user to run:
-        # ls ".\id\SEACrowd\Indonesian_Scripted_Speech_Corpus_Daily_Use_Sentence\" -Depth 0
+    with open(info_path, encoding='utf-8', newline='') as f:
+        reader = csv.DictReader(f, delimiter='\t')
+        for row in reader:
+            uttrans_id  = row.get('UTTRANS_ID', '').strip()
+            transcription = row.get('TRANSCRIPTION', '').strip()
+            if uttrans_id and transcription:
+                # UTTRANS_ID = "G0004_0_S0001.wav" → stem = "G0004_0_S0001"
+                stem = os.path.splitext(uttrans_id)[0]
+                result[stem] = transcription
     return result
 
 
@@ -371,59 +341,69 @@ def load_escwa_segments(data_dir: str) -> dict:
                         _ESCWA_SEGMENTS[utt_id] = (rec_id, float(start), float(end))
     return dict(_ESCWA_SEGMENTS)
 
+def _parse_hhmmss(ts: str) -> float:
+    """Convert H:MM:SS or M:SS to seconds."""
+    parts = ts.strip().split(':')
+    parts = [float(p) for p in parts]
+    if len(parts) == 3:
+        return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    elif len(parts) == 2:
+        return parts[0] * 60 + parts[1]
+    return float(parts[0])
 
-def load_hari_minggoean(data_dir: str) -> dict:
+def load_hari_minggoean(data_dir: str) -> list:
     """
-    Load Hari Minggoean / Homostoria podcast CS dataset.  CHANGES V1
-    TSV columns: 'Audio file'  'Start'  'End'  'Text'
-    Audio files are long MP3s; segments extracted by run_preprocessing.py.
-
-    Returns: {audio_stem: [(start_sec, end_sec, text), ...]}
-    NOTE: Unlike other loaders, returns a LIST of tuples per file, not a flat dict.
-          run_preprocessing.py handles segmented extraction with ffmpeg.
+    Load Hari Minggoean podcast CS dataset.
+    TSV filename: "Transcript_Hari Minggoean.tsv"
+    Columns (tab-sep): Audio file | Start | End | Text
+    'Audio file' = stem without extension, e.g. "Hari Minggoean_001"
+    Start/End = H:MM:SS timestamps within the corresponding mp3.
+    Returns: list of dicts {audio_stem, start_sec, end_sec, text}
     """
-    result: dict = {}  # {audio_stem: [(start, end, text), ...]}
-    data_path = Path(data_dir)
+    records = []
+    tsv_path = None
+    for f in Path(data_dir).rglob('*.tsv'):
+        if 'transcript' in f.name.lower() or 'minggoean' in f.name.lower():
+            tsv_path = f
+            break
+    if tsv_path is None:
+        print(f"  WARN: No transcript TSV found in {data_dir}")
+        return records
 
-    # Find TSV file
-    tsv_files = list(data_path.rglob('*.tsv'))
-    if not tsv_files:
-        print(f"  WARN [HariMinggoean]: No TSV found in {data_dir}")
-        return result
-
-    for tsv_file in tsv_files:
-        with open(tsv_file, encoding='utf-8', newline='') as f:
-            reader = csv.DictReader(f, delimiter='\t')
-            for row in reader:
-                audio_col = row.get('Audio file', row.get('audio_file',
-                                    row.get('file', '')))
-                start_col = row.get('Start', row.get('start', '0'))
-                end_col   = row.get('End',   row.get('end',   '0'))
-                text_col  = row.get('Text',  row.get('text',  row.get('sentence', '')))
-
-                if not audio_col or not text_col:
-                    continue
-
-                stem = os.path.splitext(os.path.basename(audio_col))[0]
-                try:
-                    start = float(start_col)
-                    end   = float(end_col)
-                except ValueError:
-                    continue
-
-                if stem not in result:
-                    result[stem] = []
-                result[stem].append((start, end, text_col.strip()))
-
-    total_segs = sum(len(v) for v in result.values())
-    print(f"  [HariMinggoean] {total_segs} segments across {len(result)} audio files")
-    return result
+    with open(tsv_path, encoding='utf-8', newline='') as f:
+        reader = csv.DictReader(f, delimiter='\t')
+        for i, row in enumerate(reader):
+            audio_stem = row.get('Audio file', '').strip()
+            start_str  = row.get('Start', '').strip()
+            end_str    = row.get('End', '').strip()
+            text       = row.get('Text', '').strip()
+            if not audio_stem or not text:
+                continue
+            try:
+                start_sec = _parse_hhmmss(start_str)
+                end_sec   = _parse_hhmmss(end_str)
+            except (ValueError, IndexError):
+                print(f"  WARN: bad timestamp row {i}: {start_str}–{end_str}")
+                continue
+            if end_sec <= start_sec:
+                continue
+            records.append({
+                'audio_stem': audio_stem,
+                'start_sec':  round(start_sec, 3),
+                'end_sec':    round(end_sec, 3),
+                'text':       text
+            })
+    return records
 
 
 def load_homostoria(data_dir: str) -> dict:
-    """Same structure as Hari Minggoean (Mozilla podcast TSV format)."""
+    """
+    Load Homostoria podcast CS dataset.
+    Attempts same TSV parsing as Hari Minggoean (timestamped segments).
+    Returns segment list if TSV found; empty list otherwise.
+    NEW: IR-7 — Homostoria transcript format unconfirmed; see info request
+    """
     return load_hari_minggoean(data_dir)
-
 
 # ─── ENGLISH ─────────────────────────────────────────────────────────────────
 
@@ -486,4 +466,61 @@ def load_librispeech_parquet(data_dir: str) -> dict:
             result[utt_id] = text
 
     print(f"  [LibriSpeech] Extracted {len(result)} utterances to {out_dir}")
+    return result
+
+def load_mozilla_spontant(tsv_dir: str) -> dict:
+    """
+    Load Mozilla Spontaneous Speech dataset.
+
+    Expected files inside tsv_dir:
+    - main TSV (e.g., train.tsv / validated.tsv)
+      Columns:
+        client_id, audio_id, audio_file, duration_ms, prompt_id,
+        prompt, transcription, votes, age, gender, language,
+        quality_tags, split, char_per_sec
+
+    - invalid TSV (optional, e.g., invalidated.tsv)
+      Columns:
+        client_id, audio_id, audio_file, duration_ms, prompt_id,
+        prompt, reason, comment, language
+
+    Returns:
+        {audio_filename_stem: transcription}
+    """
+
+    result = {}
+    invalid_ids = set()
+
+    # 1. Collect invalid samples (if exist)
+    for tsv_file in Path(tsv_dir).glob('*invalid*.tsv'):
+        with open(tsv_file, encoding='utf-8', newline='') as f:
+            reader = csv.DictReader(f, delimiter='\t')
+            for row in reader:
+                stem = os.path.splitext(row['audio_file'])[0]
+                invalid_ids.add(stem)
+
+    # 2. Load valid samples
+    for tsv_file in Path(tsv_dir).glob('*.tsv'):
+        if 'invalid' in tsv_file.name:
+            continue
+
+        with open(tsv_file, encoding='utf-8', newline='') as f:
+            reader = csv.DictReader(f, delimiter='\t')
+            for row in reader:
+                if not row.get('transcription'):
+                    continue
+
+                stem = os.path.splitext(row['audio_file'])[0]
+
+                # skip invalid samples
+                if stem in invalid_ids:
+                    continue
+
+                # optional: filter empty/noisy transcription
+                text = row['transcription'].strip()
+                if text == "":
+                    continue
+
+                result[stem] = text
+
     return result

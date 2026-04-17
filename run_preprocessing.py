@@ -8,8 +8,8 @@ import json
 import os
 from pathlib import Path
 from preprocess_audio import (
-    process_dataset, _process_tsv_segmented,
-    _process_escwa_segmented
+    process_dataset, process_escwa_segmented,
+    process_podcast_segments
 )  
 from load_transcripts import (
     load_mozilla_cv, load_fleurs, load_titml_idn,
@@ -17,7 +17,7 @@ from load_transcripts import (
     load_seacrowd_sindodsc, load_clartts,
     load_escwa, load_hari_minggoean, load_homostoria, 
     load_librispeech_parquet, load_escwa_segments,
-    _process_escwa_segmented, load_mozilla_spontant
+    load_mozilla_spontant, 
 )
 
 BASE_DATASET = r"D:\FYP\Trilingual_ASR\Dataset"  # CHANGE THIS
@@ -198,7 +198,7 @@ escwa_wav_dir = os.path.join(escwa_dir, "wav")
 
 # CHANGES V1: ESCWA has pre-defined utterance IDs in segments/text files.
 # Audio files in wav/ are full recordings; we must extract segments.
-escwa_records = _process_escwa_segmented(
+escwa_records = process_escwa_segmented(
     escwa_wav_dir, escwa_map, escwa_segs,
     os.path.join(BASE_OUT, "cs", "escwa"))
 all_records['cs_escwa'] = escwa_records
@@ -207,24 +207,30 @@ all_records['cs_escwa'] = escwa_records
 # CHANGES V1 — replace Hari Minggoean section
 # changes the following on [CS] Hari Minggoean section to:
 
-# 14. Hari Minggoean — TSV-segmented (Audio file / Start / End / Text)
 print("[CS] Hari Minggoean")
 hari_dir = os.path.join(BASE_DATASET, "CS", "id-en", "Hari Minggoean", "2")
-# CHANGES V1: returns {audio_stem: [(start, end, text), ...]}
-hari_seg_map = load_hari_minggoean(hari_dir)
-hari_records = _process_tsv_segmented(
-    hari_dir, hari_seg_map, "cs", "hari",
-    os.path.join(BASE_OUT, "cs", "hari_minggoean"))
-all_records['cs_hari'] = hari_records
+hari_segments = load_hari_minggoean(hari_dir)
+all_records['cs_hari'] = process_podcast_segments(
+    hari_dir, os.path.join(BASE_OUT, "cs", "hari_minggoean"),
+    "cs", "hari", hari_segments)
+print(f"  Hari Minggoean total segments loaded from TSV: {len(hari_segments)}")
 
-# 15. Homostoria — same structure
+# 15. Homostoria (ID-EN)
 print("[CS] Homostoria")
 homo_dir = os.path.join(BASE_DATASET, "CS", "id-en", "homostoria", "homostoria")
-homo_seg_map = load_homostoria(homo_dir)
-homo_records = _process_tsv_segmented(
-    homo_dir, homo_seg_map, "cs", "homostoria",
-    os.path.join(BASE_OUT, "cs", "homostoria"))
-all_records['cs_homostoria'] = homo_records
+homo_segments = load_homostoria(homo_dir)
+if homo_segments and isinstance(homo_segments[0], dict) \
+        and 'start_sec' in homo_segments[0]:
+    # NEW: Homostoria has same TSV format → use segment extractor
+    all_records['cs_homostoria'] = process_podcast_segments(
+        homo_dir, os.path.join(BASE_OUT, "cs", "homostoria"),
+        "cs", "homostoria", homo_segments)
+else:
+    # Fallback: Homostoria has flat stem→text format (unconfirmed)
+    all_records['cs_homostoria'] = process_dataset(
+        homo_dir, os.path.join(BASE_OUT, "cs", "homostoria"),
+        "cs", "homostoria", homo_segments)
+    # NEW: IR-7 — Homostoria TSV format unconfirmed (see info request below)
 
 # ─── SAVE MANIFESTS ──────────────────────────────────────────────────────────
 
