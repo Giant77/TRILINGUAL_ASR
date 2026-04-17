@@ -36,6 +36,8 @@ from load_transcripts import (
 # ─── PATHS - CHANGE THESE ────────────────────────────────────────────────────
 BASE_DATASET = r"D:\FYP\Trilingual_ASR\Dataset"
 BASE_OUT     = r"D:\FYP\Trilingual_ASR\Dataset\processed"
+# BASE_DATASET = r"/experiment-storage/chaidir/ammar-willy-2026/dataset"
+# BASE_OUT     = r"/experiment-storage/chaidir/ammar-willy-2026/dataset/processed"
 
 MANIFEST_DIR = os.path.join(BASE_OUT, "manifests")
 SEED         = 42  # fixed for reproducibility
@@ -591,7 +593,7 @@ print("="*60)
 
 # Run via windows/powershell:
 # overwrite : python run_preprocessing.py 2>&1 | Tee-Object -FilePath log/preprocessing_log.txt
-# append    : python run_preprocessing.py 2>&1 | Tee-Object -FilePath log/preprocessing_log.txt -Append
+# append    : python run_preprocessing.py 2>&1 | Tee-Object -FilePath log/preprocessing_log.txt -Appendgit reset --soft HEAD~1
 
 # Run via linux:
 # overwrite : python run_preprocessing.py 2>&1 | tee log/preprocessing_log.txt
