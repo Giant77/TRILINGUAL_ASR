@@ -330,33 +330,33 @@ print("="*60)
 #               'Mozilla CV ID v24.0 - TSV train/dev/test preserved',
 #               split_records_cv_id)
 
-# ── id_fleurs : PREDETERMINED FULL ───────────────────────────────────────────
-print("\n[id_fleurs] FLEURS ID")
-fleurs_id_root = os.path.join(BASE_DATASET, "id", "Fleurs_id")
+# # ── id_fleurs : PREDETERMINED FULL ───────────────────────────────────────────
+# print("\n[id_fleurs] FLEURS ID")
+# fleurs_id_root = os.path.join(BASE_DATASET, "id", "Fleurs_id")
 
-split_records_fleurs_id = {}
-for split in ['train', 'dev', 'test']:
-    tsv       = os.path.join(fleurs_id_root, f"{split}.tsv")
-    audio_dir = os.path.join(fleurs_id_root, "audio", split)
-    if os.path.exists(tsv) and os.path.exists(audio_dir):
-        m = load_fleurs(tsv)
-        recs = process_dataset(audio_dir,
-                               os.path.join(BASE_OUT, "id", "fleurs", split),
-                               "id", f"fleurs_{split}", m)
-        split_records_fleurs_id[split] = recs
-    else:
-        print(f"  WARN: FLEURS ID split '{split}' - tsv or audio dir missing")
-        split_records_fleurs_id[split] = []
+# split_records_fleurs_id = {}
+# for split in ['train', 'dev', 'test']:
+#     tsv       = os.path.join(fleurs_id_root, f"{split}.tsv")
+#     audio_dir = os.path.join(fleurs_id_root, "audio", split)
+#     if os.path.exists(tsv) and os.path.exists(audio_dir):
+#         m = load_fleurs(tsv)
+#         recs = process_dataset(audio_dir,
+#                                os.path.join(BASE_OUT, "id", "fleurs", split),
+#                                "id", f"fleurs_{split}", m)
+#         split_records_fleurs_id[split] = recs
+#     else:
+#         print(f"  WARN: FLEURS ID split '{split}' - tsv or audio dir missing")
+#         split_records_fleurs_id[split] = []
 
-save_manifest('id_fleurs', 'id', 'predetermined_full',
-              'FLEURS ID - audio/train|dev|test dirs + TSV preserved',
-              split_records_fleurs_id)
+# save_manifest('id_fleurs', 'id', 'predetermined_full',
+#               'FLEURS ID - audio/train|dev|test dirs + TSV preserved',
+#               split_records_fleurs_id)
 
 # ── id_librivox : PREDETERMINED PARTIAL ──────────────────────────────────────
 print("\n[id_librivox] Librivox ID")
 librivox_root = os.path.join(BASE_DATASET, "id", "Librivox")
-train_meta    = os.path.join(librivox_root, "metadata_train.csv")
-test_meta     = os.path.join(librivox_root, "metadata_test.csv")
+train_meta    = os.path.join(librivox_root, "metadata_train.csv", "metadata_train.csv")
+test_meta     = os.path.join(librivox_root, "metadata_test.csv", "metadata_test.csv")
 train_audio   = os.path.join(librivox_root, "audio_train",
                               "librivox-indonesia", "train")
 test_audio    = os.path.join(librivox_root, "audio_test",
