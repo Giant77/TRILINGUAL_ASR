@@ -1,4 +1,4 @@
-from run_preprocessing import *
+from preprocessing import *
 
 def main():
     """
@@ -98,9 +98,9 @@ if __name__ == "__main__":
     main()
 
 # Run via windows/powershell:
-# overwrite : python run_preprocessing.py 2>&1 | Tee-Object -FilePath log/preprocessing_log.txt
-# append    : python run_preprocessing.py 2>&1 | Tee-Object -FilePath log/preprocessing_log.txt -Append
+# overwrite : python main.py 2>&1 | Tee-Object -FilePath log/preprocessing_log.txt
+# append    : python main.py 2>&1 | Tee-Object -FilePath log/preprocessing_log.txt -Append
 
 # Run via linux:
-# overwrite : python run_preprocessing.py 2>&1 | tee log/preprocessing_log.txt
-# append    : python run_preprocessing.py 2>&1 | tee -a log/preprocessing_log.txt
+# overwrite : python main.py 2>&1 | tee log/preprocessing_log.txt
+# append    : python main.py 2>&1 | tee -a log/preprocessing_log.txt
