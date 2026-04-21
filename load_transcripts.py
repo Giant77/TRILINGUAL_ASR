@@ -160,6 +160,12 @@ def load_librivox_id(metadata_csv: str) -> dict:
     with open(metadata_csv, encoding='utf-8', newline='') as f:
         reader = csv.DictReader(f)
         for row in reader:
+            # normalize language field
+            lang = (row.get('language') or '').strip().lower()
+            if lang != 'ind':
+                continue
+
+
             path_col = row.get('path', row.get('file', row.get('filename', '')))
             text_col = row.get('sentence', row.get('transcription',
                                                     row.get('text', '')))
@@ -181,7 +187,7 @@ def load_seacrowd_indocsc(wav_dir: str, txt_dir: str) -> dict:
     return result
 
 
-def load_seacrowd_sindodsc(dataset_root: str) -> dict:
+def load_seacrowd_sindodsc(wav_dir: str, dataset_root: str) -> dict:
     """
     Load SEACrowd ASR-SIndoDuSC transcripts from UTTRANSINFO.txt.
     File location: <dataset_root>/UTTRANSINFO.txt
@@ -210,13 +216,19 @@ def load_seacrowd_sindodsc(dataset_root: str) -> dict:
 
 # ─── ARABIC ──────────────────────────────────────────────────────────────────
 
-def load_clartts(data_dir: str) -> dict:
+def load_clartts(data_dir: str, parquet_files: list = None) -> dict:
     """
     Load ClArTTS from multipart Parquet.  CHANGES V1
     Parquet columns: 'audio' (dict with 'bytes' key), 'transcription' (Arabic text)
     Writes extracted WAVs to data_dir/extracted/ and returns {utt_id: text}.
     NOTE: Returns special format {utt_id: text} where utt_id is auto-generated.
           Audio is written to data_dir/extracted/{utt_id}.wav for process_dataset.
+    
+    Args:
+        data_dir: Directory containing parquet files or extracted/ subdirectory
+        parquet_files: Optional list of specific parquet file paths to load.
+                      If None, auto-discovers all .parquet files in data_dir
+    
     Returns: {utt_id: transcript}
     """
     pq, sf = _try_parquet_import()
@@ -226,17 +238,21 @@ def load_clartts(data_dir: str) -> dict:
     out_dir = Path(data_dir) / 'extracted'
     out_dir.mkdir(exist_ok=True)
 
-    parquet_files = sorted(Path(data_dir).glob('*.parquet'))
-    if not parquet_files:
-        # Handle nested Dataset/ subdir
-        parquet_files = sorted(Path(data_dir).rglob('*.parquet'))
+    # Use specified parquet files or auto-discover
+    if parquet_files is not None:
+        files_to_load = [Path(pf) for pf in parquet_files]
+    else:
+        files_to_load = sorted(Path(data_dir).glob('*.parquet'))
+        if not files_to_load:
+            # Handle nested Dataset/ subdir
+            files_to_load = sorted(Path(data_dir).rglob('*.parquet'))
 
-    if not parquet_files:
+    if not files_to_load:
         print(f"  WARN [ClArTTS]: No parquet files in {data_dir}")
         return result
 
     global_idx = 0
-    for pf in parquet_files:
+    for pf in files_to_load:
         table = pq_mod.read_table(str(pf))
         rows = table.to_pylist()
         for row in rows:
