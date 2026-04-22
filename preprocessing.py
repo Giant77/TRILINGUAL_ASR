@@ -127,11 +127,38 @@ def _speaker_shuffle(records: list) -> tuple:
 
 def split_data(records: list, train_split: float=0.80, dev_split: float=0.10) -> dict:
     """
-    Speaker-independent 8:1:1 split.
+    Speaker-independent 8:1:1 split with fallback to utterance-level splitting.
+    
+    Strategy:
+      1. If ≥ 5 unique speakers: use speaker-level split (speaker-independent)
+      2. Otherwise: use utterance-level split (reproducible but not speaker-independent)
+    
     Returns {'train': [...], 'dev': [...], 'test': [...]}.
     """
     speakers, spk_to_recs = _speaker_shuffle(records)
-    n = len(speakers)
+    n_speakers = len(speakers)
+    
+    # Fallback to utterance-level splitting if too few speakers
+    if n_speakers < 5:
+        print(f"WARNING!    Only {n_speakers} unique speaker(s); falling back to utterance-level split")
+
+        import random
+        random.seed(SEED)
+        shuffled = records.copy()
+        random.shuffle(shuffled)
+        
+        n = len(shuffled)
+        n_train = int(n * train_split)
+        n_dev   = int(n * dev_split)
+        
+        return {
+            'train': shuffled[:n_train],
+            'dev': shuffled[n_train:n_train+n_dev],
+            'test': shuffled[n_train+n_dev:]
+        }
+    
+    # Normal speaker-independent split
+    n = n_speakers
     n_train = int(n * train_split)
     n_dev   = int(n * dev_split)
 
@@ -139,7 +166,6 @@ def split_data(records: list, train_split: float=0.80, dev_split: float=0.10) ->
     dev   = [r for s in speakers[n_train:n_train+n_dev] for r in spk_to_recs[s]]
     test  = [r for s in speakers[n_train+n_dev:]     for r in spk_to_recs[s]]
     return {'train': train, 'dev': dev, 'test': test}
-
 
 def split_partial_carve_dev(train_records: list, 
                             test_records: list, 
