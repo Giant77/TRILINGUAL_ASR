@@ -108,11 +108,12 @@ def convert_to_wav(input_path: str, output_path: str) -> bool:
         output_path,
         "-loglevel", "error"
     ]
-    # result = subprocess.run(cmd, capture_output=True)
-    result = subprocess.run(cmd)
+    result = subprocess.run(cmd, capture_output=True)
+    # result = subprocess.run(cmd)
 
     if result.returncode != 0:
-        print(f"Error: ffmpeg failed to convert {input_path} to {output_path}. stderr: {result.stderr.decode().strip()}")
+        stderr_msg = result.stderr.decode().strip() if result.stderr else "No stderr output"
+        print(f"Error: ffmpeg failed to convert {input_path} to {output_path}. stderr: {stderr_msg}")
         return False
     return True
 
@@ -241,9 +242,9 @@ def process_dataset(input_dir: str, output_dir: str,
                      lang: str, dataset_name: str,
                      transcript_map: dict) -> list:
     """
-    Generic processing function.
-    transcript_map: {filename_without_ext: transcript_text}
-    Returns list of {utt_id, wav_path, text, duration} dicts
+    Generic processing function.  
+    transcript_map: {filename_without_ext: transcript_text}  
+    Returns list of {utt_id, wav_path, text, duration} dicts  
     """
     os.makedirs(output_dir, exist_ok=True)
     records = []

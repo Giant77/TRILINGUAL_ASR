@@ -24,6 +24,7 @@ Workflow:
   7. Save manifests with updated counts
 """
 
+import csv
 import io
 import json
 import logging
@@ -40,6 +41,7 @@ from load_transcripts import (
     load_librivox_id, load_seacrowd_indocsc, load_seacrowd_sindodsc,
     load_clartts, load_escwa, load_escwa_segments,
     load_hari_minggoean, load_homostoria, load_librispeech_parquet,
+    load_mozilla_spontant
 )
 
 
@@ -224,7 +226,21 @@ def save_manifest(key: str, lang: str,
 
 
 
-def balance_lang_data(lang_datasets: dict) -> dict:
+def _save_balance_checkpoint(balanced_records: dict, checkpoint_path: str) -> None:
+    """Save balanced records to checkpoint for resuming pipeline."""
+    checkpoint = {}
+    for key, records in balanced_records.items():
+        checkpoint[key] = {
+            'count': len(records),
+            'hours': round(_calculate_hours(records), 2),
+        }
+    os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+    with open(checkpoint_path, 'w') as f:
+        json.dump(checkpoint, f, indent=2)
+    print(f"  Saved balance checkpoint to: {checkpoint_path}")
+
+
+def balance_lang_data(lang_datasets: dict, checkpoint_path: str = None) -> dict:
     """
     Balance data across languages to match least-data language by hours.
     
@@ -234,6 +250,10 @@ def balance_lang_data(lang_datasets: dict) -> dict:
       2. Find language with least hours
       3. Reduce other languages to match by removing from non-predetermined datasets first
       4. Log before/after statistics
+    
+    Args:
+        lang_datasets: Dataset metadata dict
+        checkpoint_path: Optional path to save balance checkpoint for resuming
     
     Returns: {dataset_key: reduced_records}
     """
@@ -348,18 +368,47 @@ def balance_lang_data(lang_datasets: dict) -> dict:
     for lang in sorted(lang_hours_post.keys()):
         print(f"  {lang.upper()}: {lang_hours_post[lang]:.1f}h")
     
+    # Save checkpoint if requested
+    if checkpoint_path:
+        _save_balance_checkpoint(result, checkpoint_path)
+    
     return result
 
 
 
 
-def _process_tsv_segmented(audio_dir: str, seg_map: dict,
+def _list_to_dict_segments(seg_list: list) -> dict:
+    """Convert segment list format to dict format for processing.
+    
+    Input:  [{audio_stem, start_sec, end_sec, text}, ...]
+    Output: {audio_stem: [(start, end, text), ...]}
+    """
+    seg_dict = defaultdict(list)
+    for seg in seg_list:
+        audio_stem = seg['audio_stem']
+        start = seg['start_sec']
+        end = seg['end_sec']
+        text = seg['text']
+        seg_dict[audio_stem].append((start, end, text))
+    return dict(seg_dict)
+
+
+def _process_tsv_segmented(audio_dir: str, seg_map,
                             lang: str, name: str,
                             output_dir: str) -> list:
-    """Extract segments from long audio files using (start, end, text) tuples."""
+    """Extract segments from long audio files using (start, end, text) tuples.
+    
+    Args:
+        seg_map: Either dict {audio_stem: [(start, end, text), ...]} 
+                 or list [{audio_stem, start_sec, end_sec, text}, ...]
+    """
     os.makedirs(output_dir, exist_ok=True)
     records = []
     skipped = 0
+
+    # Convert list format to dict if needed
+    if isinstance(seg_map, list):
+        seg_map = _list_to_dict_segments(seg_map)
 
     audio_files = {}
     for ext in ['.mp3', '.wav', '.flac']:
@@ -787,28 +836,60 @@ def process_en_fleurs():
 
 
 def process_en_cv_spon():
-    """English: Mozilla CV Spontaneous - 8:1:1"""
+    """English: Mozilla CV Spontaneous - Use 'split' column from TSV"""
     print("\n[en_cv_spon] Mozilla CV EN Spontaneous")
-    cv_en_dir = os.path.join(BASE_DATASET, "en", "mozilla",
-                              "sps-corpus-1.0-2025-11-25-en")
-    cv_en_map = {}
-    for tsv_file in Path(cv_en_dir).glob('*.tsv'):
-        cv_en_map.update(load_mozilla_cv(str(tsv_file)))
-    cv_en_all = process_dataset(os.path.join(cv_en_dir, "audios"),
-                                 os.path.join(BASE_OUT, "en", "cv_spon"),
-                                 "en", "cv_spon", cv_en_map)
 
-    split_records = split_data(cv_en_all)
-    save_manifest('en_cv_spon', 'en', '8_1_1',
-                  'Mozilla CV EN Spontaneous v1.0 - single corpus; 8:1:1 applied',
-                  split_records)
-    
+    cv_en_dir = os.path.join(
+        BASE_DATASET, "en", "mozilla",
+        "sps-corpus-1.0-2025-11-25-en"
+    )
+
+    # 1. Load transcriptions ONCE
+    cv_en_map = load_mozilla_spontant(cv_en_dir)
+
+    # 2. Load split assignments ONLY from main corpus TSV
+    split_membership = {}
+    corpus_tsv = Path(cv_en_dir) / "ss-corpus-en.tsv"
+
+    with open(corpus_tsv, encoding='utf-8', newline='') as f:
+        reader = csv.DictReader(f, delimiter='\t')
+
+        for row in reader:
+            audio_file = row.get('audio_file')
+            split_val = row.get('split')
+
+            if not audio_file or not split_val:
+                continue
+
+            stem = os.path.splitext(audio_file)[0]
+            split_val = split_val.strip().lower()
+
+            if split_val in ['valid', 'validated']:
+                split_membership[stem] = 'dev'
+            elif split_val in ['train', 'dev', 'test']:
+                split_membership[stem] = split_val
+
+    # 3. Process audio
+    cv_en_all = process_dataset(
+        os.path.join(cv_en_dir, "audios"),
+        os.path.join(BASE_OUT, "en", "cv_spon"),
+        "en", "cv_spon", cv_en_map
+    )
+
+    # 4. Assign splits
+    split_records = assign_by_membership(cv_en_all, split_membership)
+
+    save_manifest(
+        'en_cv_spon', 'en', 'predetermined_full',
+        'Mozilla CV EN Spontaneous v1.0 - splits from TSV "split" column',
+        split_records
+    )
+
     return {
         'split_records': split_records,
         'all_records': cv_en_all,
-        'is_predetermined': False,
+        'is_predetermined': True,
     }
-
 
 def process_cs_escwa():
     """Code-Switching (AR-EN): QCRI ESCWA - 8:1:1"""
@@ -821,9 +902,17 @@ def process_cs_escwa():
         escwa_text_map, escwa_seg_map,
         os.path.join(BASE_OUT, "cs", "escwa"))
 
+    # Extract speaker info from recording_id for better speaker-independent splitting
+    for rec in escwa_all:
+        # Get rec_id from escwa_seg_map if available
+        utt_id = rec.get('source_stem', '')
+        if utt_id in escwa_seg_map:
+            rec_id, _, _ = escwa_seg_map[utt_id]
+            rec['speaker'] = f"spk_escwa_{rec_id}"
+    
     split_records = split_data(escwa_all)
     save_manifest('cs_escwa', 'cs', '8_1_1',
-                  'QCRI ESCWA - Kaldi segments+text; no predetermined splits; 8:1:1 applied',
+                  'QCRI ESCWA - Kaldi segments+text; speaker-independent 8:1:1 applied',
                   split_records)
     
     return {

@@ -1,3 +1,11 @@
+# Run via windows/powershell:
+# overwrite : python main.py 2>&1 | Tee-Object -FilePath log/preprocessing_log.txt
+# append    : python main.py 2>&1 | Tee-Object -FilePath log/preprocessing_log.txt -Append
+
+# Run via linux:
+# overwrite : python main.py 2>&1 | tee log/preprocessing_log.txt
+# append    : python main.py 2>&1 | tee -a log/preprocessing_log.txt
+
 from preprocessing import *
 
 def main():
@@ -16,24 +24,25 @@ def main():
     # Registry of dataset processing functions (in order)
     processors = [
         # Indonesian
-        ('id', process_id_cv),
-        ('id', process_id_fleurs),
-        # ('id', process_id_librivox), # skip: too much work for cleaning ejaan lama
-        ('id', process_id_titml),
-        ('id', process_id_indocsc),
-        ('id', process_id_sindodsc),
+        # ('id', process_id_cv),
+        # ('id', process_id_fleurs),
+        # # ('id', process_id_librivox), # skip: too much work for cleaning ejaan lama
+        # ('id', process_id_titml),
+        # ('id', process_id_indocsc),
+        # ('id', process_id_sindodsc),
 
         # Arabic
-        ('ar', process_ar_cv),
-        ('ar', process_ar_fleurs),
-        ('ar', process_ar_clartts),
+        # Restart HERE
+        # ('ar', process_ar_cv),
+        # ('ar', process_ar_fleurs),
+        # ('ar', process_ar_clartts),
 
-        # English
-        ('en', process_en_librispeech),
-        ('en', process_en_fleurs),
+        # # English
+        # ('en', process_en_librispeech),
+        # ('en', process_en_fleurs),
         ('en', process_en_cv_spon),
 
-        # Code-Switching
+        # # Code-Switching
         ('cs', process_cs_escwa),
         ('cs', process_cs_hari),
         ('cs', process_cs_homostoria),
@@ -96,11 +105,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# Run via windows/powershell:
-# overwrite : python main.py 2>&1 | Tee-Object -FilePath log/preprocessing_log.txt
-# append    : python main.py 2>&1 | Tee-Object -FilePath log/preprocessing_log.txt -Append
-
-# Run via linux:
-# overwrite : python main.py 2>&1 | tee log/preprocessing_log.txt
-# append    : python main.py 2>&1 | tee -a log/preprocessing_log.txt

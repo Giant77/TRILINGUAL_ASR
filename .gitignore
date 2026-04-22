@@ -3,6 +3,7 @@ architectures*.md
 # *espnet*/
 *espnet*
 log/
+TTS/
 
 wsl2_Instructions.txt
 

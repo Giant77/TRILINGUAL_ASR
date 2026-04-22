@@ -505,7 +505,7 @@ def load_mozilla_spontant(tsv_dir: str) -> dict:
         prompt, transcription, votes, age, gender, language,
         quality_tags, split, char_per_sec
 
-    - invalid TSV (optional, e.g., invalidated.tsv)
+    - invalid TSV (optional, e.g., reorted.tsv)
       Columns:
         client_id, audio_id, audio_file, duration_ms, prompt_id,
         prompt, reason, comment, language
@@ -518,7 +518,7 @@ def load_mozilla_spontant(tsv_dir: str) -> dict:
     invalid_ids = set()
 
     # 1. Collect invalid samples (if exist)
-    for tsv_file in Path(tsv_dir).glob('*invalid*.tsv'):
+    for tsv_file in Path(tsv_dir).glob('*reported*.tsv'):
         with open(tsv_file, encoding='utf-8', newline='') as f:
             reader = csv.DictReader(f, delimiter='\t')
             for row in reader:
@@ -527,7 +527,7 @@ def load_mozilla_spontant(tsv_dir: str) -> dict:
 
     # 2. Load valid samples
     for tsv_file in Path(tsv_dir).glob('*.tsv'):
-        if 'invalid' in tsv_file.name:
+        if 'reported' in tsv_file.name:
             continue
 
         with open(tsv_file, encoding='utf-8', newline='') as f:
