@@ -290,6 +290,12 @@ def balance_lang_data(lang_datasets: dict, checkpoint_path: str = None) -> dict:
     for key, data in lang_datasets.items():
         # Extract language from key (id_cv -> id, ar_clartts -> ar, etc)
         lang = key.split('_')[0]
+
+        if lang == "cs":
+            # keep untouched, exclude from balancing
+            result[key] = data['all_records']
+            continue
+
         records = data['all_records']
         hours = _calculate_hours(records)
         lang_hours[lang] += hours
