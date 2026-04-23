@@ -14,7 +14,6 @@ NEW: All loaders return dicts unless noted; parquet loaders require pyarrow + pa
 """
 import csv
 import io
-import json
 import os
 import re
 from pathlib import Path

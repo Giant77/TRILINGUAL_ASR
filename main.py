@@ -2,7 +2,7 @@
 # overwrite : python main.py 2>&1 | Tee-Object -FilePath log/preprocessing_log.txt
 # append    : python main.py 2>&1 | Tee-Object -FilePath log/preprocessing_log.txt -Append
 
-# Run via linux:
+# Run via linux/bash:
 # overwrite : python main.py 2>&1 | tee log/preprocessing_log.txt
 # append    : python main.py 2>&1 | tee -a log/preprocessing_log.txt
 
@@ -24,22 +24,21 @@ def main():
     # Registry of dataset processing functions (in order)
     processors = [
         # Indonesian
-        # ('id', process_id_cv),
-        # ('id', process_id_fleurs),
-        # # ('id', process_id_librivox), # skip: too much work for cleaning ejaan lama
-        # ('id', process_id_titml),
-        # ('id', process_id_indocsc),
-        # ('id', process_id_sindodsc),
+        ('id', process_id_cv),
+        ('id', process_id_fleurs),
+        # ('id', process_id_librivox), # skip: too much work for cleaning ejaan lama
+        ('id', process_id_titml),
+        ('id', process_id_indocsc),
+        ('id', process_id_sindodsc),
 
         # Arabic
-        # Restart HERE
-        # ('ar', process_ar_cv),
-        # ('ar', process_ar_fleurs),
-        # ('ar', process_ar_clartts),
+        ('ar', process_ar_cv),
+        ('ar', process_ar_fleurs),
+        ('ar', process_ar_clartts),
 
-        # # English
-        # ('en', process_en_librispeech),
-        # ('en', process_en_fleurs),
+        # English
+        ('en', process_en_librispeech),
+        ('en', process_en_fleurs),
         ('en', process_en_cv_spon),
 
         # # Code-Switching
@@ -59,6 +58,11 @@ def main():
         dataset_key = processor_func.__name__.replace('process_', '')
         result = processor_func()
         lang_datasets[dataset_key] = result
+
+    # Save combined short-segment manifests per language
+    print("\n" + "="*70)
+    print("STEP 1.5: Saving short-segment manifests per language")
+    save_short_segment_manifests(MANIFEST_DIR)
     
     # Step 2: Balance data across languages
     print("\n" + "="*70)
