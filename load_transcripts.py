@@ -188,28 +188,80 @@ def load_seacrowd_indocsc(wav_dir: str, txt_dir: str) -> dict:
 
 def load_seacrowd_sindodsc(wav_dir: str, dataset_root: str) -> dict:
     """
-    Load SEACrowd ASR-SIndoDuSC transcripts from UTTRANSINFO.txt.
-    File location: <dataset_root>/UTTRANSINFO.txt
-    Columns (tab-sep): CHANNEL  UTTRANS_ID  SPEAKER_ID  PROMPT  TRANSCRIPTION
-    UTTRANS_ID is the wav filename, e.g. G0004_0_S0001.wav
+    Load SEACrowd ASR-SIndoDuSC transcripts from TXT annotation files.
+    Expected file structure:
+        <dataset_root>/WAV/<audio_stem>.wav
+        <dataset_root>/TXT/<audio_stem>.txt
+
+    TXT format per file:
+        [start,end] speaker_id gender transcript
+    Multiple segments may appear on one line.
+
     Returns: {wav_stem: transcription}
-    NEW: UTTRANSINFO.txt confirmed as authoritative transcript source
     """
     result = {}
-    info_path = os.path.join(dataset_root, 'UTTRANSINFO.txt')
-    if not os.path.exists(info_path):
-        print(f"  WARN: UTTRANSINFO.txt not found at {info_path}")
+    txt_dir = Path(dataset_root) / 'TXT'
+    if not txt_dir.exists():
+        # fallback to UTTRANSINFO.txt style if TXT/ is missing
+        info_path = os.path.join(dataset_root, 'UTTRANSINFO.txt')
+        if not os.path.exists(info_path):
+            print(f"  WARN: Sindodsc transcripts not found at {txt_dir} or {info_path}")
+            return result
+
+        with open(info_path, encoding='utf-8', newline='') as f:
+            reader = csv.DictReader(f, delimiter='\t')
+            for row in reader:
+                uttrans_id = row.get('UTTRANS_ID', '').strip()
+                transcription = row.get('TRANSCRIPTION', '').strip()
+                if uttrans_id and transcription:
+                    stem = os.path.splitext(uttrans_id)[0]
+                    result[stem] = transcription
         return result
 
-    with open(info_path, encoding='utf-8', newline='') as f:
-        reader = csv.DictReader(f, delimiter='\t')
-        for row in reader:
-            uttrans_id  = row.get('UTTRANS_ID', '').strip()
-            transcription = row.get('TRANSCRIPTION', '').strip()
-            if uttrans_id and transcription:
-                # UTTRANS_ID = "G0004_0_S0001.wav" → stem = "G0004_0_S0001"
-                stem = os.path.splitext(uttrans_id)[0]
-                result[stem] = transcription
+    segment_re = re.compile(r"\[\s*([0-9]+(?:\.[0-9]+)?)\s*,\s*([0-9]+(?:\.[0-9]+)?)\s*\]")
+    speaker_re = re.compile(r"^\s*(\S+)\s+(\S+)\s*")
+
+    for txt_file in sorted(txt_dir.glob('*.txt')):
+        stem = txt_file.stem
+        text_parts = []
+        with open(txt_file, encoding='utf-8', errors='replace') as f:
+            content = f.read().strip()
+            if not content:
+                continue
+
+            positions = [(m.start(), m.end(), m.group(1), m.group(2))
+                         for m in segment_re.finditer(content)]
+            for idx, (start_pos, end_pos, start_ts, end_ts) in enumerate(positions):
+                next_pos = positions[idx + 1][0] if idx + 1 < len(positions) else len(content)
+                segment_text = content[end_pos:next_pos].strip()
+                if not segment_text:
+                    continue
+
+                speaker_match = speaker_re.match(segment_text)
+                if speaker_match:
+                    speaker_id = speaker_match.group(1)
+                    gender = speaker_match.group(2)
+                    utterance = segment_text[speaker_match.end():].strip()
+                else:
+                    speaker_id = ''
+                    gender = ''
+                    utterance = segment_text
+
+                if speaker_id or gender:
+                    prefix = f"[{start_ts},{end_ts}] {speaker_id} {gender}"
+                else:
+                    prefix = f"[{start_ts},{end_ts}]"
+
+                if utterance:
+                    text_parts.append(f"{prefix} {utterance}".strip())
+                else:
+                    text_parts.append(prefix)
+
+        if text_parts:
+            result[stem] = ' '.join(text_parts)
+
+    if not result:
+        print(f"  WARN: No Sindodsc TXT transcripts loaded from {txt_dir}")
     return result
 
 

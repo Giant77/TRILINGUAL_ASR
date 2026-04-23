@@ -3,7 +3,6 @@ preprocess_audio.py
 Purpose: Convert all audio to 16kHz mono WAV, segment long files, skip short files
 NEW: Undergraduate constraint — fixed seed for reproducibility (required for TA defense)
 """
-import csv
 import json
 import os
 import subprocess

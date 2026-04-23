@@ -7,6 +7,7 @@
 # append    : python main.py 2>&1 | tee -a log/preprocessing_log.txt
 
 from preprocessing import *
+from preprocess_audio import *
 
 def main():
     """
