@@ -286,7 +286,8 @@ def balance_lang_data(lang_datasets: dict, checkpoint_path: str = None) -> dict:
     # Group datasets by language
     lang_hours = defaultdict(float)
     lang_datasets_by_lang = defaultdict(list)
-    
+    result = {}  # initialize early
+
     for key, data in lang_datasets.items():
         # Extract language from key (id_cv -> id, ar_clartts -> ar, etc)
         lang = key.split('_')[0]
