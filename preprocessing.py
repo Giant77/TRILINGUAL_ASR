@@ -43,12 +43,8 @@ from load_transcripts import (
     load_mozilla_spontant
 )
 
-
-# ─── PATHS - CHANGE THESE ────────────────────────────────────────────────────
-BASE_DATASET = r".\Dataset"
-BASE_OUT     = r".\Dataset\processed"
-# BASE_DATASET = r"/experiment-storage/chaidir/ammar-willy-2026/dataset"
-# BASE_OUT     = r"/experiment-storage/chaidir/ammar-willy-2026/dataset/processed"
+BASE_DATASET = os.path.join(".", "Dataset")
+BASE_OUT = os.path.join(BASE_DATASET, "processed")
 
 MANIFEST_DIR = os.path.join(BASE_OUT, "manifests")
 RECORDS_DIR = os.path.join(BASE_OUT, "records")
