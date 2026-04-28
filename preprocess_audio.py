@@ -13,8 +13,8 @@ from tqdm import tqdm
 # NEW: Fixed configuration for reproducibility
 CONFIG = {
     "sample_rate": 16000,
-    "min_duration_sec": 5.0,
-    "max_duration_sec": 20.0,
+    "min_duration_sec": 1.0,
+    "max_duration_sec": 30.0,
     "target_duration_sec": 10.0, # target for segmentation
     "silence_threshold_db": -50,
     "silence_min_len_ms": 500,

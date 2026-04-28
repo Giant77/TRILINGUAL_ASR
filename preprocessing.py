@@ -621,7 +621,7 @@ def process_id_cv(mode='full', manifest_dir=None):
                 'split_records': split_records,
                 'all_records': all_recs,
                 'is_predetermined': True
-            }, f)
+            }, f, ensure_ascii=False, indent=2)
         
         if mode == 'audio':
             return None
@@ -680,7 +680,7 @@ def process_id_fleurs(mode='full', manifest_dir=None):
         
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
-            json.dump({'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}, f)
+            json.dump({'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}, f, ensure_ascii=False, indent=2)
         
         if mode == 'audio':
             return None
@@ -732,7 +732,7 @@ def process_id_librivox(mode='full', manifest_dir=None):
         
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
-            json.dump({'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}, f)
+            json.dump({'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}, f, ensure_ascii=False, indent=2)
         
         if mode == 'audio':
             return None
@@ -775,7 +775,7 @@ def process_id_titml(mode='full', manifest_dir=None):
         
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
-            json.dump({'all_records': titml_all, 'is_predetermined': False}, f)
+            json.dump({'all_records': titml_all, 'is_predetermined': False}, f, ensure_ascii=False, indent=2)
         
         if mode == 'audio':
             return None
@@ -822,7 +822,7 @@ def process_id_indocsc(mode='full', manifest_dir=None):
         
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
-            json.dump({'all_records': indocsc_all, 'is_predetermined': False}, f)
+            json.dump({'all_records': indocsc_all, 'is_predetermined': False}, f, ensure_ascii=False, indent=2)
         
         if mode == 'audio':
             return None
@@ -869,7 +869,7 @@ def process_id_sindodsc(mode='full', manifest_dir=None):
         
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
-            json.dump({'all_records': sindodsc_all, 'is_predetermined': False}, f)
+            json.dump({'all_records': sindodsc_all, 'is_predetermined': False}, f, ensure_ascii=False, indent=2)
         
         if mode == 'audio':
             return None
@@ -925,7 +925,7 @@ def process_ar_cv(mode='full', manifest_dir=None):
         
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
-            json.dump({'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}, f)
+            json.dump({'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}, f, ensure_ascii=False, indent=2)
         
         if mode == 'audio':
             return None
@@ -979,7 +979,7 @@ def process_ar_fleurs(mode='full', manifest_dir=None):
         
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
-            json.dump({'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}, f)
+            json.dump({'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}, f, ensure_ascii=False, indent=2)
         
         if mode == 'audio':
             return None
@@ -1036,7 +1036,7 @@ def process_ar_clartts(mode='full', manifest_dir=None):
         
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
-            json.dump({'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}, f)
+            json.dump({'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}, f, ensure_ascii=False, indent=2)
         
         if mode == 'audio':
             return None
@@ -1080,7 +1080,7 @@ def process_en_librispeech(mode='full', manifest_dir=None):
         
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
-            json.dump({'all_records': libri_all, 'is_predetermined': False}, f)
+            json.dump({'all_records': libri_all, 'is_predetermined': False}, f, ensure_ascii=False, indent=2)
         
         if mode == 'audio':
             return None
@@ -1135,7 +1135,7 @@ def process_en_fleurs(mode='full', manifest_dir=None):
         
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
-            json.dump({'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}, f)
+            json.dump({'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}, f, ensure_ascii=False, indent=2)
         
         if mode == 'audio':
             return None
@@ -1201,7 +1201,7 @@ def process_en_cv_spon(mode='full', manifest_dir=None):
         
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
-            json.dump({'all_records': cv_en_all, 'split_membership': split_membership, 'is_predetermined': True}, f)
+            json.dump({'all_records': cv_en_all, 'split_membership': split_membership, 'is_predetermined': True}, f, ensure_ascii=False, indent=2)
         
         if mode == 'audio':
             return None
@@ -1255,7 +1255,7 @@ def process_cs_escwa(mode='full', manifest_dir=None):
         
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
-            json.dump({'all_records': escwa_all, 'is_predetermined': False}, f)
+            json.dump({'all_records': escwa_all, 'is_predetermined': False}, f, ensure_ascii=False, indent=2)
         
         if mode == 'audio':
             return None
@@ -1298,7 +1298,7 @@ def process_cs_hari(mode='full', manifest_dir=None):
         
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
-            json.dump({'all_records': hari_all, 'is_predetermined': False}, f)
+            json.dump({'all_records': hari_all, 'is_predetermined': False}, f, ensure_ascii=False, indent=2)
         
         if mode == 'audio':
             return None
@@ -1341,7 +1341,7 @@ def process_cs_homostoria(mode='full', manifest_dir=None):
         
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
-            json.dump({'all_records': homo_all, 'is_predetermined': False}, f)
+            json.dump({'all_records': homo_all, 'is_predetermined': False}, f, ensure_ascii=False, indent=2)
         
         if mode == 'audio':
             return None
