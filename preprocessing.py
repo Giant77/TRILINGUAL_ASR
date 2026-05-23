@@ -24,16 +24,20 @@ Workflow:
   7. Save manifests with updated counts
 """
 
+import re
 import csv
 import json
 import os
+import string
+import random
 import subprocess
+import unicodedata
 from collections import defaultdict
 from pathlib import Path
 
 from tqdm import tqdm
 
-from preprocess_audio import process_dataset, CONFIG, get_duration
+from preprocess_audio import process_dataset, CONFIG, get_duration, process_escwa_segmented
 
 from load_transcripts import (
     load_mozilla_cv, load_fleurs, load_titml_idn,
@@ -43,7 +47,7 @@ from load_transcripts import (
     load_mozilla_spontant
 )
 
-BASE_DATASET = os.path.join(".", "Dataset")
+BASE_DATASET = os.path.join(".", "dataset")
 BASE_OUT = os.path.join(BASE_DATASET, "processed")
 
 MANIFEST_DIR = os.path.join(BASE_OUT, "manifests")
@@ -110,18 +114,6 @@ def calculate_hours(records: list) -> float:
     return sum(r.get('duration', 0) for r in records) / 3600.0
 
 
-def _speaker_shuffle(records: list) -> tuple:
-    """Group by speaker, shuffle speakers (fixed seed), return (speakers, spk_to_recs)."""
-    import random
-    random.seed(SEED)
-    spk_to_recs = defaultdict(list)
-    for r in records:
-        spk_to_recs[r.get('speaker', 'spk_unk')].append(r)
-    speakers = sorted(spk_to_recs.keys())
-    random.shuffle(speakers)
-    return speakers, spk_to_recs
-
-
 def split_data(records: list, train_split: float=0.80, dev_split: float=0.10) -> dict:
     """
     Speaker-independent 8:1:1 split with fallback to utterance-level splitting.
@@ -132,37 +124,20 @@ def split_data(records: list, train_split: float=0.80, dev_split: float=0.10) ->
     
     Returns {'train': [...], 'dev': [...], 'test': [...]}.
     """
-    speakers, spk_to_recs = _speaker_shuffle(records)
-    n_speakers = len(speakers)
+    random.seed(SEED)
+    shuffled = records.copy()
+    random.shuffle(shuffled)
     
-    # Fallback to utterance-level splitting if too few speakers
-    if n_speakers < 5:
-        print(f"WARNING!    Only {n_speakers} unique speaker(s); falling back to utterance-level split")
-
-        import random
-        random.seed(SEED)
-        shuffled = records.copy()
-        random.shuffle(shuffled)
-        
-        n = len(shuffled)
-        n_train = int(n * train_split)
-        n_dev   = int(n * dev_split)
-        
-        return {
-            'train': shuffled[:n_train],
-            'dev': shuffled[n_train:n_train+n_dev],
-            'test': shuffled[n_train+n_dev:]
-        }
-    
-    # Normal speaker-independent split
-    n = n_speakers
+    n = len(shuffled)
     n_train = int(n * train_split)
     n_dev   = int(n * dev_split)
+    
+    return {
+        'train': shuffled[:n_train],
+        'dev': shuffled[n_train:n_train+n_dev],
+        'test': shuffled[n_train+n_dev:]
+    }
 
-    train = [r for s in speakers[:n_train]           for r in spk_to_recs[s]]
-    dev   = [r for s in speakers[n_train:n_train+n_dev] for r in spk_to_recs[s]]
-    test  = [r for s in speakers[n_train+n_dev:]     for r in spk_to_recs[s]]
-    return {'train': train, 'dev': dev, 'test': test}
 
 def split_partial_carve_dev(train_records: list, 
                             test_records: list, 
@@ -172,13 +147,18 @@ def split_partial_carve_dev(train_records: list,
     Partial predetermined split (train+test only, no dev).
     Carve dev from train so overall ratio ≈ 8:1:1.
     """
-    speakers, spk_to_recs = _speaker_shuffle(train_records)
-    n = len(speakers)
-    n_new_train = int(n * (train_split / 0.9))
-    new_train = [r for s in speakers[:n_new_train]   for r in spk_to_recs[s]]
-    dev       = [r for s in speakers[n_new_train:]   for r in spk_to_recs[s]]
-    return {'train': new_train, 'dev': dev, 'test': test_records}
+    random.seed(SEED)
+    shuffled = train_records.copy()
+    random.shuffle(shuffled)
 
+    n = len(shuffled)
+    n_new_train = int(n * (train_split / 0.9))
+    
+    return {
+        'train': shuffled[:n_new_train],
+        'dev': shuffled[n_new_train:],
+        'test': test_records
+    }
 
 def assign_by_membership(all_records: list,
                           membership: dict) -> dict:
@@ -253,6 +233,49 @@ def save_manifest(key: str, lang: str,
     msg = f"\n[{key}] {split_tag}\n{split_note}\nUtts: {ratio_str}\nHours: {hours_str} (total={hours:.1f}h)"
     print(msg)
 
+def remove_invisible_chars(text: str) -> str:
+    return ''.join(
+        c for c in text
+        if unicodedata.category(c) != 'Cf'
+    )
+
+
+def remove_punctuation(text: str) -> str:
+    return text.translate(str.maketrans('', '', string.punctuation))
+
+
+def normalize_whitespace(text: str) -> str:
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def normalize_arabic(text: str, araby=None) -> str:
+    if araby:
+        text = araby.strip_diacritics(text)
+        text = araby.normalize_hamza(text)
+        text = araby.normalize_ligature(text)
+
+    # Remove tatweel
+    text = text.replace('ـ', '')
+
+    return text
+
+def contains_arabic(text: str) -> bool:
+    return any(
+        '\u0600' <= c <= '\u06FF'
+        or '\u0750' <= c <= '\u077F'
+        or '\u08A0' <= c <= '\u08FF'
+        or '\uFB50' <= c <= '\uFDFF'
+        or '\uFE70' <= c <= '\uFEFF'
+        for c in text
+    )
+
+def normalize_common(text: str) -> str:
+    # Unicode NFC normalization
+    text = unicodedata.normalize("NFKC", text)
+    text = remove_invisible_chars(text)
+    text = remove_punctuation(text)
+    text = normalize_whitespace(text)
+    return text
 
 def preprocess_transcripts(lang: str, records: list, dataset_key: str = None) -> None:
     """
@@ -260,47 +283,59 @@ def preprocess_transcripts(lang: str, records: list, dataset_key: str = None) ->
     
     Supported languages:
       - ar (Arabic): Remove diacritics using pyarabic library
-      - id (Indonesian): TODO - Add ASR transcript preprocessing
+      - id (Indonesian): Convert to lowercase
       - en (English): Convert to lowercase
       - cs (Code-Switching): Auto-detect Arabic, apply diacritics removal if present, else lowercase
     """
     try:
         import pyarabic.araby as araby
         has_pyarabic = True
+
     except ImportError:
         has_pyarabic = False
         if lang == 'ar':
-            print("    WARNING [pyarabic]: Not installed - skipping Arabic diacritic removal")
+            print("WARNING [pyarabic]: Not installed - skipping Arabic diacritic removal")
     
     for record in records:
         text = record.get('text', '')
         if not text:
             continue
-        
+
+        # Common normalization
+        text = normalize_common(text)
+
         if lang == 'ar':
             if has_pyarabic:
-                record['text'] = araby.strip_diacritics(text)
+                text = normalize_arabic(text, araby)
+
+            record['text'] = text
+
         elif lang == 'id':
-            # TODO: Add Indonesian ASR preprocessing (normalize spelling, remove extra spaces)
-            pass
+            record['text'] = text.lower()
+
         elif lang == 'en':
             record['text'] = text.lower()
+
         elif lang == 'cs':
             # Code-Switching: auto-detect Arabic
-            has_arabic = any('\u0600' <= c <= '\u06FF' for c in text)
+            has_arabic = contains_arabic(text)
+
             if has_arabic:
                 if has_pyarabic:
-                    record['text'] = araby.strip_diacritics(text)
+                    text = normalize_arabic(text, araby)
                 else:
                     if dataset_key:
-                        print(f"    WARNING [{dataset_key}]: pyarabic not installed - skipping Arabic diacritics")
-            else:
-                record['text'] = text.lower()
+                        print(
+                            f"    WARNING [{dataset_key}]: "
+                            f"pyarabic not installed - skipping Arabic normalization"
+                        )
+
+            record['text'] = text.lower()
+
         else:
             print(f"    WARNING: Unknown language '{lang}' - skipping preprocessing")
 
-
-def balance_lang_data(lang_datasets: dict, checkpoint_path: str = None) -> dict:
+def balance_lang_data(lang_datasets: dict) -> dict:
     """
     Balance data across languages to match least-data language by hours.
     
@@ -312,9 +347,7 @@ def balance_lang_data(lang_datasets: dict, checkpoint_path: str = None) -> dict:
       4. Log before/after statistics
     
     Args:
-        lang_datasets: Dataset metadata dict
-        checkpoint_path: Optional path to save balance checkpoint for resuming
-    
+        lang_datasets: Dataset metadata dict    
     Returns: {dataset_key: reduced_records}
     """
     # Group datasets by language
@@ -522,63 +555,6 @@ def _process_tsv_segmented(audio_dir: str, seg_map,
             })
 
     print(f"  {name}: {len(records)} segs extracted, {skipped} skipped")
-    return records
-
-
-def _process_escwa_segmented(wav_dir: str, text_map: dict,
-                              seg_map: dict, output_dir: str) -> list:
-    """Extract ESCWA utterances using Kaldi segments timing."""
-    os.makedirs(output_dir, exist_ok=True)
-    records = []
-    skipped = 0
-
-    wav_files = {wf.stem: str(wf)
-                 for wf in Path(wav_dir).rglob('*.wav')}
-
-    for utt_id, (rec_id, start, end) in tqdm(seg_map.items(), desc="ESCWA"):
-        if utt_id not in text_map:
-            skipped += 1
-            continue
-        src = wav_files.get(rec_id) or next(
-            (v for k, v in wav_files.items() if rec_id in k or k in rec_id), None)
-        if not src:
-            skipped += 1
-            continue
-
-        dur = end - start
-        if not (CONFIG["min_duration_sec"] <= dur <= CONFIG["max_duration_sec"]):
-            skipped += 1
-            continue
-
-        safe_id = utt_id.replace('/', '_')
-        out_wav = os.path.join(output_dir, f"{safe_id}.wav")
-
-        if not os.path.exists(out_wav):
-            cmd = ["ffmpeg", "-y", "-i", src,
-                   "-ss", str(start), "-t", str(dur),
-                   "-ar", str(CONFIG["sample_rate"]),
-                   "-ac", "1", "-acodec", "pcm_s16le",
-                   out_wav, "-loglevel", "error"]
-            if subprocess.run(cmd, capture_output=True).returncode != 0:
-                skipped += 1
-                continue
-
-        actual = get_duration(out_wav)
-        if actual < CONFIG["min_duration_sec"]:
-            os.remove(out_wav)
-            skipped += 1
-            continue
-
-        records.append({
-            "utt_id":      safe_id,
-            "wav_path":    out_wav,
-            "text":        text_map[utt_id].strip(),
-            "speaker":     f"spk_escwa_{rec_id[:8]}",
-            "duration":    round(actual, 3),
-            "source_stem": utt_id,
-        })
-
-    print(f"  ESCWA: {len(records)} segs, {skipped} skipped")
     return records
 
 
@@ -1242,7 +1218,7 @@ def process_cs_escwa(mode='full', manifest_dir=None):
     if mode in ['audio', 'full']:
         escwa_text_map = load_escwa(escwa_dir)
         escwa_seg_map  = load_escwa_segments(escwa_dir)
-        escwa_all = _process_escwa_segmented(
+        escwa_all = process_escwa_segmented(
             os.path.join(escwa_dir, "wav"),
             escwa_text_map, escwa_seg_map,
             os.path.join(BASE_OUT, "cs", "escwa"))

@@ -23,101 +23,61 @@ CONFIG = {
 
 # ─── SEGMENTED DATASET PROCESSORS ────────────────────────────────────────────
 def process_escwa_segmented(wav_dir: str, text_map: dict,
-                               seg_map: dict, output_dir: str) -> list:
-    """
-    Process ESCWA: extract segments from long recordings using Kaldi segments file.
-    seg_map: {utt_id: (rec_id, start_sec, end_sec)}
-    text_map: {utt_id: transcript}
-    CHANGES V1: uses Kaldi segments format for timing
-    """
-    import subprocess
-    from pathlib import Path as _Path
+                              seg_map: dict, output_dir: str) -> list:
+    """Extract ESCWA utterances using Kaldi segments timing."""
     os.makedirs(output_dir, exist_ok=True)
     records = []
     skipped = 0
 
-    wav_files = {}
-    for wf in _Path(wav_dir).rglob('*.wav'):
-        wav_files[wf.stem] = str(wf)
+    wav_files = {wf.stem: str(wf)
+                 for wf in Path(wav_dir).rglob('*.wav')}
 
     for utt_id, (rec_id, start, end) in tqdm(seg_map.items(), desc="ESCWA"):
         if utt_id not in text_map:
             skipped += 1
             continue
-
-        # Match recording ID to wav file (partial match)
-        src_wav = wav_files.get(rec_id)
-        if not src_wav:
-            # Try prefix match
-            matches = [v for k, v in wav_files.items() if rec_id in k or k in rec_id]
-            src_wav = matches[0] if matches else None
-        if not src_wav:
+        src = wav_files.get(rec_id) or next(
+            (v for k, v in wav_files.items() if rec_id in k or k in rec_id), None)
+        if not src:
             skipped += 1
             continue
 
-        duration = end - start
-        out_wav = os.path.join(output_dir, f"{utt_id.replace('/', '_')}.wav")
+        dur = end - start
+        if not (CONFIG["min_duration_sec"] <= dur <= CONFIG["max_duration_sec"]):
+            skipped += 1
+            continue
+
+        safe_id = utt_id.replace('/', '_')
+        out_wav = os.path.join(output_dir, f"{safe_id}.wav")
+
         if not os.path.exists(out_wav):
-            cmd = [
-                "ffmpeg", "-y", "-i", src_wav,
-                "-ss", str(start), "-t", str(duration),
-                "-ar", str(CONFIG["sample_rate"]),
-                "-ac", "1", "-acodec", "pcm_s16le",
-                out_wav, "-loglevel", "error"
-            ]
-            r = subprocess.run(cmd, capture_output=True)
-            if r.returncode != 0:
+            cmd = ["ffmpeg", "-y", "-i", src,
+                   "-ss", str(start), "-t", str(dur),
+                   "-ar", str(CONFIG["sample_rate"]),
+                   "-ac", "1", "-acodec", "pcm_s16le",
+                   out_wav, "-loglevel", "error"]
+            if subprocess.run(cmd, capture_output=True).returncode != 0:
                 skipped += 1
                 continue
 
-        actual_dur = get_duration(out_wav)
-        if actual_dur < CONFIG["min_duration_sec"]:
-            _record_short_segment('cs', {
-                "utt_id":   utt_id.replace('/', '_'),
-                "wav_path": out_wav,
-                "text":     text_map[utt_id].strip(),
-                "speaker":  f"spk_escwa_{rec_id[:8]}",
-                "duration": round(actual_dur, 3),
-                "source_stem": utt_id,
-                "source_dataset": 'cs_escwa',
-            })
+        actual = get_duration(out_wav)
+        if actual < CONFIG["min_duration_sec"]:
+            os.remove(out_wav)
             skipped += 1
             continue
 
-        if actual_dur > CONFIG["max_duration_sec"]:
-            segments = segment_long_audio(out_wav, output_dir,
-                                           utt_id, text_map[utt_id].strip())
-            os.remove(out_wav)
-            for seg_path, seg_text in segments:
-                seg_id = os.path.splitext(os.path.basename(seg_path))[0]
-                seg_dur = get_duration(seg_path)
-                record = {
-                    "utt_id":      seg_id,
-                    "wav_path":    seg_path,
-                    "text":        seg_text.strip(),
-                    "speaker":     f"spk_escwa_{rec_id[:8]}",
-                    "duration":    round(seg_dur, 3),
-                    "source_stem": utt_id,
-                    "source_dataset": 'cs_escwa',
-                }
-                if seg_dur < CONFIG["min_duration_sec"]:
-                    _record_short_segment('cs', record)
-                else:
-                    records.append(record)
-            continue
-
         records.append({
-            "utt_id":   utt_id.replace('/', '_'),
-            "wav_path": out_wav,
-            "text":     text_map[utt_id].strip(),
-            "speaker":  f"spk_escwa_{rec_id[:8]}",
-            "duration": round(actual_dur, 3),
+            "utt_id":      safe_id,
+            "wav_path":    out_wav,
+            "text":        text_map[utt_id].strip(),
+            "speaker":     safe_id,
+            "duration":    round(actual, 3),
             "source_stem": utt_id,
-            "source_dataset": 'cs_escwa',
         })
 
-    print(f"  ESCWA: {len(records)} segments, {skipped} skipped")
+    print(f"  ESCWA: {len(records)} segs, {skipped} skipped")
     return records
+
 
 def convert_to_wav(input_path: str, output_path: str) -> bool:
     """
@@ -354,7 +314,7 @@ def process_dataset(input_dir: str, output_dir: str,
                 "utt_id":      utt_id,
                 "wav_path":    out_wav,
                 "text":        transcript.strip().lower() if lang != "ar" else transcript.strip(),
-                "speaker":     f"spk_{dataset_name}_{stem[:6]}",
+                "speaker":     utt_id,
                 "duration":    round(duration, 3),
                 "source_stem": stem,
                 "source_dataset": dataset_name,
@@ -373,7 +333,7 @@ def process_dataset(input_dir: str, output_dir: str,
                     "utt_id":      seg_id,
                     "wav_path":    seg_path,
                     "text":        seg_text.strip().lower() if lang != "ar" else seg_text.strip(),
-                    "speaker":     f"spk_{dataset_name}_{stem[:6]}",
+                    "speaker":     seg_id,
                     "duration":    round(seg_dur, 3),
                     "source_stem": stem,
                     "source_dataset": dataset_name,
@@ -387,7 +347,7 @@ def process_dataset(input_dir: str, output_dir: str,
                 "utt_id":      utt_id,
                 "wav_path":    out_wav,
                 "text":        transcript.strip().lower() if lang != "ar" else transcript.strip(),
-                "speaker":     f"spk_{dataset_name}_{stem[:6]}",
+                "speaker":     utt_id, 
                 "duration":    round(duration, 3),
                 "source_stem": stem,
                 "source_dataset": dataset_name,
@@ -461,7 +421,7 @@ def process_podcast_segments(data_dir: str, output_dir: str,
                 "utt_id":      utt_id,
                 "wav_path":    out_wav,
                 "text":        text,
-                "speaker":     f"spk_{dataset_name}_{safe_stem[:8]}",
+                "speaker":     utt_id,
                 "duration":    round(actual_dur, 3),
                 "source_stem": audio_stem,
                 "source_dataset": dataset_name,
@@ -480,7 +440,7 @@ def process_podcast_segments(data_dir: str, output_dir: str,
                     "utt_id":      seg_id,
                     "wav_path":    seg_path,
                     "text":        seg_text,
-                    "speaker":     f"spk_{dataset_name}_{safe_stem[:8]}",
+                    "speaker":     seg_id,
                     "duration":    round(seg_dur, 3),
                     "source_stem": audio_stem,
                     "source_dataset": dataset_name,
@@ -495,7 +455,7 @@ def process_podcast_segments(data_dir: str, output_dir: str,
             "utt_id":   utt_id,
             "wav_path": out_wav,
             "text":     text,
-            "speaker":  f"spk_{dataset_name}_{safe_stem[:8]}",
+            "speaker":  utt_id,
             "duration": round(actual_dur, 3),
             "source_stem": audio_stem,
             "source_dataset": dataset_name,
