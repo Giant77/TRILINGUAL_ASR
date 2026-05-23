@@ -180,9 +180,28 @@ def load_seacrowd_indocsc(wav_dir: str, txt_dir: str) -> dict:
     Returns {audio_stem: transcript}.
     """
     result = {}
-    for txt_file in Path(txt_dir).glob('*.txt'):
-        with open(txt_file, encoding='utf-8') as f:
-            result[txt_file.stem] = f.read().strip()
+
+    for txt_file in Path(txt_dir).glob("*.txt"):
+        transcripts = []
+
+        with open(txt_file, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+
+                if not line:
+                    continue
+
+                # Format: [start,end]\tspeaker_id\tgender\ttranscript
+                parts = line.split("\t")
+
+                if len(parts) < 4:
+                    continue
+
+                transcript = parts[3].strip()
+                transcripts.append(transcript)
+
+        result[txt_file.stem] = " ".join(transcripts)
+
     return result
 
 
