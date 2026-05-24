@@ -496,8 +496,6 @@ def load_homostoria(data_dir: str) -> dict:
     """
     Load Homostoria podcast CS dataset.
     Attempts same TSV parsing as Hari Minggoean (timestamped segments).
-    Returns segment list if TSV found; empty list otherwise.
-    NEW: IR-7 — Homostoria transcript format unconfirmed; see info request
     """
     return load_hari_minggoean(data_dir)
 

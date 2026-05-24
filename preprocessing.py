@@ -549,7 +549,7 @@ def _process_tsv_segmented(audio_dir: str, seg_map,
                 "utt_id":      utt_id,
                 "wav_path":    out_wav,
                 "text":        text.strip(),
-                "speaker":     f"spk_{name}_{audio_stem[:8]}",
+                "speaker":     utt_id,
                 "duration":    round(actual, 3),
                 "source_stem": audio_stem,
             })
@@ -1223,11 +1223,11 @@ def process_cs_escwa(mode='full', manifest_dir=None):
             escwa_text_map, escwa_seg_map,
             os.path.join(BASE_OUT, "cs", "escwa"))
 
-        for rec in escwa_all:
-            utt_id = rec.get('source_stem', '')
-            if utt_id in escwa_seg_map:
-                rec_id, _, _ = escwa_seg_map[utt_id]
-                rec['speaker'] = f"spk_escwa_{rec_id}"
+        # for rec in escwa_all:
+            # utt_id = rec.get('source_stem', '')
+            # if utt_id in escwa_seg_map:
+                # rec_id, _, _ = escwa_seg_map[utt_id]
+                # rec['speaker'] = f"spk_escwa_{rec_id}"
         
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
