@@ -335,6 +335,8 @@ def preprocess_transcripts(lang: str, records: list, dataset_key: str = None) ->
         else:
             print(f"    WARNING: Unknown language '{lang}' - skipping preprocessing")
 
+    return records
+
 def balance_lang_data(lang_datasets: dict) -> dict:
     """
     Balance data across languages to match least-data language by hours.

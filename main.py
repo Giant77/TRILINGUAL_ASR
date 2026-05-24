@@ -125,8 +125,11 @@ def main():
             
             for split in ['train', 'dev', 'test']:
                 if split in manifest and manifest[split]:
-                    preprocess_transcripts(lang, manifest[split], dataset_key)
-            
+                    manifest[split] = preprocess_transcripts(
+                        lang,
+                        manifest[split],
+                        dataset_key
+                    )            
             # Save back to manifest
             with open(manifest_path, 'w', encoding='utf-8') as f:
                 json.dump(manifest, f, ensure_ascii=False, indent=2)
