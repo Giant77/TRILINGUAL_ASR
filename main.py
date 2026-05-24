@@ -129,11 +129,18 @@ def main():
                         lang,
                         manifest[split],
                         dataset_key
-                    )            
+                    )
+            # keep in-memory records synchronized
+            lang_datasets[dataset_key]["all_records"] = (
+                manifest.get("train", [])
+                + manifest.get("dev", [])
+                + manifest.get("test", [])
+            )
+
             # Save back to manifest
             with open(manifest_path, 'w', encoding='utf-8') as f:
                 json.dump(manifest, f, ensure_ascii=False, indent=2)
-    
+
     # ─────────────────────────────────────────────────────────────
     # STAGE 4: Balancing/Re-splitting
     # ─────────────────────────────────────────────────────────────
