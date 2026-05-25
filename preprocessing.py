@@ -37,8 +37,10 @@ from pathlib import Path
 
 from tqdm import tqdm
 
-from preprocess_audio import process_dataset, CONFIG, get_duration, process_escwa_segmented
-
+from preprocess_audio import (
+    process_dataset, process_timestamp_segments, CONFIG, 
+    get_duration, process_escwa_segmented, process_indocsc_segmented
+)
 from load_transcripts import (
     load_mozilla_cv, load_fleurs, load_titml_idn,
     load_librivox_id, load_seacrowd_indocsc, load_seacrowd_sindodsc,
@@ -113,7 +115,6 @@ def calculate_hours(records: list) -> float:
     """Calculate total hours from record durations."""
     return sum(r.get('duration', 0) for r in records) / 3600.0
 
-
 def split_data(records: list, train_split: float=0.80, dev_split: float=0.10) -> dict:
     """
     Speaker-independent 8:1:1 split with fallback to utterance-level splitting.
@@ -137,7 +138,6 @@ def split_data(records: list, train_split: float=0.80, dev_split: float=0.10) ->
         'dev': shuffled[n_train:n_train+n_dev],
         'test': shuffled[n_train+n_dev:]
     }
-
 
 def split_partial_carve_dev(train_records: list, 
                             test_records: list, 
@@ -177,7 +177,6 @@ def assign_by_membership(all_records: list,
     if unassigned:
         print(f"{unassigned} records unassigned (source_stem not in membership)")
     return result
-
 
 def save_manifest(key: str, lang: str,
                   split_source: str, split_note: str,
@@ -239,14 +238,11 @@ def remove_invisible_chars(text: str) -> str:
         if unicodedata.category(c) != 'Cf'
     )
 
-
 def remove_punctuation(text: str) -> str:
     return text.translate(str.maketrans('', '', string.punctuation))
 
-
 def normalize_whitespace(text: str) -> str:
     return re.sub(r'\s+', ' ', text).strip()
-
 
 def normalize_arabic(text: str, araby=None) -> str:
     if araby:
@@ -472,96 +468,7 @@ def balance_lang_data(lang_datasets: dict) -> dict:
     
     return result
 
-
-
-
-def _list_to_dict_segments(seg_list: list) -> dict:
-    """Convert segment list format to dict format for processing.
-    
-    Input:  [{audio_stem, start_sec, end_sec, text}, ...]
-    Output: {audio_stem: [(start, end, text), ...]}
-    """
-    seg_dict = defaultdict(list)
-    for seg in seg_list:
-        audio_stem = seg['audio_stem']
-        start = seg['start_sec']
-        end = seg['end_sec']
-        text = seg['text']
-        seg_dict[audio_stem].append((start, end, text))
-    return dict(seg_dict)
-
-
-def _process_tsv_segmented(audio_dir: str, seg_map,
-                            lang: str, name: str,
-                            output_dir: str) -> list:
-    """Extract segments from long audio files using (start, end, text) tuples.
-    
-    Args:
-        seg_map: Either dict {audio_stem: [(start, end, text), ...]} 
-                 or list [{audio_stem, start_sec, end_sec, text}, ...]
-    """
-    os.makedirs(output_dir, exist_ok=True)
-    records = []
-    skipped = 0
-
-    # Convert list format to dict if needed
-    if isinstance(seg_map, list):
-        seg_map = _list_to_dict_segments(seg_map)
-
-    audio_files = {}
-    for ext in ['.mp3', '.wav', '.flac']:
-        for af in Path(audio_dir).rglob(f'*{ext}'):
-            audio_files[af.stem] = str(af)
-
-    for audio_stem, segments in tqdm(seg_map.items(), desc=f"Segments {name}"):
-        if audio_stem not in audio_files:
-            skipped += len(segments)
-            continue
-        src = audio_files[audio_stem]
-
-        for idx, (start, end, text) in enumerate(segments):
-            dur = end - start
-            if not (CONFIG["min_duration_sec"] <= dur <= CONFIG["max_duration_sec"]):
-                skipped += 1
-                continue
-            if not text.strip():
-                skipped += 1
-                continue
-
-            utt_id  = f"{lang}_{name}_{audio_stem}_{idx:04d}".replace(" ", "_")
-            out_wav = os.path.join(output_dir, f"{utt_id}.wav")
-
-            if not os.path.exists(out_wav):
-                cmd = ["ffmpeg", "-y", "-i", src,
-                       "-ss", str(start), "-t", str(dur),
-                       "-ar", str(CONFIG["sample_rate"]),
-                       "-ac", "1", "-acodec", "pcm_s16le",
-                       out_wav, "-loglevel", "error"]
-                if subprocess.run(cmd, capture_output=True).returncode != 0:
-                    skipped += 1
-                    continue
-
-            actual = get_duration(out_wav)
-            if actual < CONFIG["min_duration_sec"]:
-                os.remove(out_wav)
-                skipped += 1
-                continue
-
-            records.append({
-                "utt_id":      utt_id,
-                "wav_path":    out_wav,
-                "text":        text.strip(),
-                "speaker":     utt_id,
-                "duration":    round(actual, 3),
-                "source_stem": audio_stem,
-            })
-
-    print(f"  {name}: {len(records)} segs extracted, {skipped} skipped")
-    return records
-
-
 # ─── DATASET WRAPPER FUNCTIONS ──────────────────────────────────────────────
-
 def process_id_cv(mode='full', manifest_dir=None):
     """Indonesian: Mozilla Common Voice - PREDETERMINED FULL
     
@@ -627,7 +534,6 @@ def process_id_cv(mode='full', manifest_dir=None):
     
     return None
 
-
 def process_id_fleurs(mode='full', manifest_dir=None):
     """Indonesian: FLEURS - PREDETERMINED FULL
     
@@ -681,7 +587,6 @@ def process_id_fleurs(mode='full', manifest_dir=None):
     
     return None
 
-
 def process_id_librivox(mode='full', manifest_dir=None):
     """Indonesian: Librivox - PREDETERMINED PARTIAL
     
@@ -733,7 +638,6 @@ def process_id_librivox(mode='full', manifest_dir=None):
     
     return None
 
-
 def process_id_titml(mode='full', manifest_dir=None):
     """Indonesian: TITML-IDN - 8:1:1
     
@@ -777,7 +681,6 @@ def process_id_titml(mode='full', manifest_dir=None):
     
     return None
 
-
 def process_id_indocsc(mode='full', manifest_dir=None):
     """Indonesian: SEACrowd IndoCSC - 8:1:1
     
@@ -793,11 +696,14 @@ def process_id_indocsc(mode='full', manifest_dir=None):
                                 "Indonesian_Conversational_Speech_Corpus", "TXT")
     
     if mode in ['audio', 'full']:
-        indocsc_all = process_dataset(indocsc_wav,
-                                       os.path.join(BASE_OUT, "id", "indocsc"),
-                                       "id", "indocsc",
-                                       load_seacrowd_indocsc(indocsc_wav, indocsc_txt))
-        
+        segment_map = load_seacrowd_indocsc(indocsc_txt)
+
+        indocsc_all = process_indocsc_segmented(
+            indocsc_wav,
+            segment_map,
+            os.path.join(BASE_OUT, "id", "indocsc"),
+        )
+
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
             json.dump({'all_records': indocsc_all, 'is_predetermined': False}, f, ensure_ascii=False, indent=2)
@@ -823,7 +729,6 @@ def process_id_indocsc(mode='full', manifest_dir=None):
         return {'split_records': split_records, 'all_records': indocsc_all, 'is_predetermined': False}
     
     return None
-
 
 def process_id_sindodsc(mode='full', manifest_dir=None):
     """Indonesian: SEACrowd SIndoDuSC - 8:1:1
@@ -870,7 +775,6 @@ def process_id_sindodsc(mode='full', manifest_dir=None):
         return {'split_records': split_records, 'all_records': sindodsc_all, 'is_predetermined': False}
     
     return None
-
 
 def process_ar_cv(mode='full', manifest_dir=None):
     """Arabic: Mozilla Common Voice - PREDETERMINED FULL
@@ -926,7 +830,6 @@ def process_ar_cv(mode='full', manifest_dir=None):
     
     return None
 
-
 def process_ar_fleurs(mode='full', manifest_dir=None):
     """Arabic: FLEURS - PREDETERMINED FULL
     
@@ -979,7 +882,6 @@ def process_ar_fleurs(mode='full', manifest_dir=None):
         return {'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}
     
     return None
-
 
 def process_ar_clartts(mode='full', manifest_dir=None):
     """Arabic: ClArTTS - PREDETERMINED PARTIAL
@@ -1037,7 +939,6 @@ def process_ar_clartts(mode='full', manifest_dir=None):
     
     return None
 
-
 def process_en_librispeech(mode='full', manifest_dir=None):
     """English: LibriSpeech - 8:1:1
     
@@ -1081,7 +982,6 @@ def process_en_librispeech(mode='full', manifest_dir=None):
         return {'split_records': split_records, 'all_records': libri_all, 'is_predetermined': False}
     
     return None
-
 
 def process_en_fleurs(mode='full', manifest_dir=None):
     """English: FLEURS - PREDETERMINED FULL
@@ -1135,7 +1035,6 @@ def process_en_fleurs(mode='full', manifest_dir=None):
         return {'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}
     
     return None
-
 
 def process_en_cv_spon(mode='full', manifest_dir=None):
     """English: Mozilla CV Spontaneous - Use 'split' column from TSV
@@ -1257,7 +1156,6 @@ def process_cs_escwa(mode='full', manifest_dir=None):
     
     return None
 
-
 def process_cs_hari(mode='full', manifest_dir=None):
     """Code-Switching (ID-EN): Hari Minggoean - 8:1:1
     
@@ -1271,9 +1169,15 @@ def process_cs_hari(mode='full', manifest_dir=None):
     
     if mode in ['audio', 'full']:
         hari_seg_map = load_hari_minggoean(hari_dir)
-        hari_all     = _process_tsv_segmented(hari_dir, hari_seg_map, "cs", "hari",
-                                               os.path.join(BASE_OUT, "cs", "hari_minggoean"))
-        
+
+        hari_all = process_timestamp_segments(
+            hari_dir,
+            hari_seg_map,
+            "cs",
+            "hari",
+            os.path.join(BASE_OUT, "cs", "hari_minggoean")
+        )        
+
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
             json.dump({'all_records': hari_all, 'is_predetermined': False}, f, ensure_ascii=False, indent=2)
@@ -1300,7 +1204,6 @@ def process_cs_hari(mode='full', manifest_dir=None):
     
     return None
 
-
 def process_cs_homostoria(mode='full', manifest_dir=None):
     """Code-Switching (ID-EN): Homostoria - 8:1:1
     
@@ -1314,9 +1217,15 @@ def process_cs_homostoria(mode='full', manifest_dir=None):
     
     if mode in ['audio', 'full']:
         homo_seg_map = load_homostoria(homo_dir)
-        homo_all     = _process_tsv_segmented(homo_dir, homo_seg_map, "cs", "homostoria",
-                                               os.path.join(BASE_OUT, "cs", "homostoria"))
-        
+
+        homo_all = process_timestamp_segments(
+            homo_dir,
+            homo_seg_map,
+            "cs",
+            "homostoria",
+            os.path.join(BASE_OUT, "cs", "homostoria")
+        )
+
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
             json.dump({'all_records': homo_all, 'is_predetermined': False}, f, ensure_ascii=False, indent=2)
@@ -1342,4 +1251,3 @@ def process_cs_homostoria(mode='full', manifest_dir=None):
         return {'split_records': split_records, 'all_records': homo_all, 'is_predetermined': False}
     
     return None
-

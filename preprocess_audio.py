@@ -78,7 +78,6 @@ def process_escwa_segmented(wav_dir: str, text_map: dict,
     print(f"  ESCWA: {len(records)} segs, {skipped} skipped")
     return records
 
-
 def convert_to_wav(input_path: str, output_path: str) -> bool:
     """
     Convert any audio to 16kHz mono WAV using ffmpeg.
@@ -119,7 +118,6 @@ def get_duration(wav_path: str) -> float:
 
 SHORT_SEGMENT_RECORDS = defaultdict(list)
 
-
 def _record_short_segment(lang: str, record: dict) -> None:
     SHORT_SEGMENT_RECORDS[lang].append(record)
 
@@ -139,7 +137,6 @@ def save_short_segment_manifests(manifest_dir: str) -> None:
         with open(out_path, 'w', encoding='utf-8') as f:
             json.dump(manifest, f, ensure_ascii=False, indent=2)
         print(f"  Saved short-segments manifest for {lang}: {out_path} ({total} utts, {hours:.2f}h)")
-
 
 def _split_transcript_by_durations(text: str, durations: list[float]) -> list[str]:
     words = text.strip().split()
@@ -170,7 +167,6 @@ def _split_transcript_by_durations(text: str, durations: list[float]) -> list[st
         offset += count
     return output
 
-
 def _build_fixed_split_durations(duration: float) -> list[float]:
     if duration <= CONFIG['max_duration_sec']:
         return [duration]
@@ -187,7 +183,6 @@ def _build_fixed_split_durations(duration: float) -> list[float]:
     if total != duration:
         durations[-1] += round(duration - total, 3)
     return durations
-
 
 def segment_long_audio(input_path: str, output_dir: str,
                         utt_id: str, transcript: str) -> list:
@@ -272,7 +267,6 @@ def segment_long_audio(input_path: str, output_dir: str,
 
     return segments if segments else [(input_path, transcript)]
 
-
 def process_dataset(input_dir: str, output_dir: str,
                      lang: str, dataset_name: str,
                      transcript_map: dict) -> list:
@@ -356,10 +350,10 @@ def process_dataset(input_dir: str, output_dir: str,
     print(f"  {dataset_name}: {len(records)} processed, {skipped} skipped")
     return records
 
-
-def process_podcast_segments(data_dir: str, output_dir: str,
-                               lang: str, dataset_name: str,
-                               segment_records: list) -> list:
+def process_timestamp_segments(data_dir: str, segment_records: list, 
+                               lang: str, dataset_name: str, output_dir: str,
+                               speaker_field: str = None
+                               ) -> list:
     """
     Extract audio segments from podcast mp3/wav files using timestamps.
     segment_records: list of {audio_stem, start_sec, end_sec, text}
@@ -385,6 +379,11 @@ def process_podcast_segments(data_dir: str, output_dir: str,
         end_sec    = rec['end_sec']
         text       = rec['text'].strip()
         duration   = end_sec - start_sec
+        speaker = (
+            rec.get(speaker_field)
+            if speaker_field and speaker_field in rec
+            else utt_id
+        )
 
         # Extract segment with ffmpeg
         src_path = audio_index.get(audio_stem.lower())
@@ -421,7 +420,7 @@ def process_podcast_segments(data_dir: str, output_dir: str,
                 "utt_id":      utt_id,
                 "wav_path":    out_wav,
                 "text":        text,
-                "speaker":     utt_id,
+                "speaker":     speaker,
                 "duration":    round(actual_dur, 3),
                 "source_stem": audio_stem,
                 "source_dataset": dataset_name,
@@ -440,7 +439,7 @@ def process_podcast_segments(data_dir: str, output_dir: str,
                     "utt_id":      seg_id,
                     "wav_path":    seg_path,
                     "text":        seg_text,
-                    "speaker":     seg_id,
+                    "speaker":     speaker,
                     "duration":    round(seg_dur, 3),
                     "source_stem": audio_stem,
                     "source_dataset": dataset_name,
@@ -465,6 +464,92 @@ def process_podcast_segments(data_dir: str, output_dir: str,
           f"{skipped} skipped")
     return results
 
+def process_indocsc_segmented(wav_dir: str, segment_map: dict,
+                              output_dir: str):
+    """
+    TEST
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    records = []
+
+    wav_files = {
+        wf.stem: str(wf)
+        for wf in Path(wav_dir).glob("*.wav")
+    }
+
+    skipped = 0
+
+    for stem, segments in segment_map.items():
+
+        src = wav_files.get(stem)
+
+        if src is None:
+            skipped += 1
+            continue
+
+        for idx, seg in enumerate(segments):
+
+            start = seg["start"]
+            end   = seg["end"]
+            text  = seg["text"]
+
+            dur = end - start
+
+            if dur < CONFIG["min_duration_sec"]:
+                continue
+
+            utt_id = (
+                f"id_indocsc_{stem}_s{idx:05d}"
+            )
+
+            out_wav = os.path.join(
+                output_dir,
+                f"{utt_id}.wav"
+            )
+
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", src,
+                "-ss", str(start),
+                "-t", str(dur),
+                "-ar", str(CONFIG["sample_rate"]),
+                "-ac", "1",
+                "-acodec", "pcm_s16le",
+                out_wav,
+                "-loglevel", "error"
+            ]
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True
+            )
+
+            if result.returncode != 0:
+                skipped += 1
+                continue
+
+            actual = get_duration(out_wav)
+
+            if actual < CONFIG["min_duration_sec"]:
+                continue
+
+            records.append({
+                "utt_id": utt_id,
+                "wav_path": out_wav,
+                "text": text.lower(),
+                "speaker": seg["speaker"],
+                "duration": round(actual, 3),
+                "source_stem": stem,
+                "source_dataset": "indocsc",
+            })
+
+    print(
+        f"  IndoCSC: {len(records)} segments, "
+        f"{skipped} skipped"
+    )
+
+    return records
 
 if __name__ == "__main__":
     print("Audio preprocessing script ready.")

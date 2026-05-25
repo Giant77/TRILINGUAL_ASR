@@ -182,7 +182,7 @@ def load_seacrowd_indocsc(wav_dir: str, txt_dir: str) -> dict:
     result = {}
 
     for txt_file in Path(txt_dir).glob("*.txt"):
-        transcripts = []
+        segments = []
 
         with open(txt_file, encoding="utf-8") as f:
             for line in f:
@@ -197,10 +197,29 @@ def load_seacrowd_indocsc(wav_dir: str, txt_dir: str) -> dict:
                 if len(parts) < 4:
                     continue
 
-                transcript = parts[3].strip()
-                transcripts.append(transcript)
+                ts, speaker, gender, transcript = parts
 
-        result[txt_file.stem] = " ".join(transcripts)
+                timestamp = re.match(
+                    r"\[(\d+(?:\.\d+)?),(\d+(?:\.\d+)?)\]",
+                    ts
+                )
+
+                # check if timestamp present
+                if not timestamp:
+                    continue
+
+                start = float(timestamp.group(1))
+                end   = float(timestamp.group(2))
+
+
+                segments.append({
+                    "start": start,
+                    "end": end,
+                    "speaker": speaker,
+                    "text": transcript.strip()
+                })
+
+        result[txt_file.stem] = segments
 
     return result
 
