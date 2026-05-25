@@ -226,16 +226,50 @@ def load_seacrowd_indocsc(wav_dir: str, txt_dir: str) -> dict:
 
 def load_seacrowd_sindodsc(wav_dir: str, dataset_root: str) -> dict:
     """
-    Load SEACrowd ASR-SIndoDuSC transcripts from TXT annotation files.
-    Expected file structure:
-        <dataset_root>/WAV/<audio_stem>.wav
-        <dataset_root>/TXT/<audio_stem>.txt
+    Load SEACrowd Indonesian Conversational Speech Corpus (IndoCSC)
+    timestamp annotations.
 
-    TXT format per file:
-        [start,end] speaker_id gender transcript
-    Multiple segments may appear on one line.
+    Parses transcript files and extracts utterance-level timestamps,
+    speaker identifiers, and transcripts for each conversation recording.
 
-    Returns: {wav_stem: transcription}
+    Args:
+        txt_dir:
+            Directory containing IndoCSC TXT annotation files.
+
+    Returns:
+        dict:
+            Mapping from recording stem to a list of timestamped utterance
+            annotations.
+
+            Example:
+
+            {
+                "A0102_S0001_0_G1703": [
+                    {
+                        "start": 3.369,
+                        "end": 5.269,
+                        "speaker": "G1703",
+                        "text": "hal- halo"
+                    },
+                    {
+                        "start": 5.980,
+                        "end": 7.400,
+                        "speaker": "G1703",
+                        "text": "ada apa Len"
+                    }
+                ]
+            }
+
+    Notes:
+        Annotation format:
+
+            [start_time,end_time] speaker_id gender transcript
+
+        Example:
+
+            [3.369,5.269] G1703 female hal- halo
+
+        Timestamp values are converted to seconds as float.
     """
     result = {}
     txt_dir = Path(dataset_root) / 'TXT'

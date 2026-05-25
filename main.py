@@ -18,7 +18,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Trilingual ASR Preprocessing Pipeline")
     parser.add_argument('--start-stage', type=int, default=1, 
                         help='Start stage (default: 1)')
-    parser.add_argument('--end-stage', type=int, default=1000, 
+    parser.add_argument('--end-stage', '--stop-stage', type=int, default=1000, 
                         help='End stage (default: 1000)')
     return parser.parse_args()
 
@@ -48,8 +48,8 @@ def main():
         # ('id', process_id_fleurs),
         # # ('id', process_id_librivox), # skip: too much work for cleaning ejaan lama
         # ('id', process_id_titml),
-        # ('id', process_id_indocsc),
-        ('id', process_id_sindodsc),
+        ('id', process_id_indocsc),
+        # ('id', process_id_sindodsc),
 
         # # Arabic
         # ('ar', process_ar_cv),

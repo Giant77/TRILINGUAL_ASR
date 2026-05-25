@@ -355,12 +355,58 @@ def process_timestamp_segments(data_dir: str, segment_records: list,
                                speaker_field: str = None
                                ) -> list:
     """
-    Extract audio segments from podcast mp3/wav files using timestamps.
-    segment_records: list of {audio_stem, start_sec, end_sec, text}
-    Each audio_stem is matched to a file in data_dir (case-insensitive glob).
-    Returns list of {utt_id, wav_path, text, speaker, duration} dicts.
-    NEW: Handles long-form podcast audio (20min+) via timestamp-based cutting
-    NEW: Case-insensitive stem matching handles "MInggoean" typo in filename
+    Extract timestamp-defined utterance segments from long-form audio
+    recordings and generate standard ASR training records.
+
+    Supports datasets where transcripts are provided as timestamped
+    segments within a larger audio recording (e.g. podcasts,
+    conversations, interviews, broadcast speech).
+
+    Args:
+        data_dir:
+            Directory containing source audio files.
+
+        segment_records:
+            List of timestamp annotations.
+
+            Expected format:
+
+            [
+                {
+                    "audio_stem": "recording_001",
+                    "start_sec": 12.350,
+                    "end_sec": 16.920,
+                    "text": "example transcript"
+                }
+            ]
+
+        lang:
+            Language identifier used in generated utterance IDs.
+
+        dataset_name:
+            Dataset identifier used in generated utterance IDs and
+            metadata records.
+
+        output_dir:
+            Directory where extracted WAV segments will be written.
+
+        speaker_field:
+            Optional key name inside each segment record containing
+            speaker information. If omitted, generated utterance IDs
+            are used as speaker identifiers.
+
+    Returns:
+        list[dict]:
+            Standard record objects compatible with split_data(),
+            save_manifest(), and downstream ASR training pipelines.
+
+    Notes:
+        - Audio extraction is performed with ffmpeg.
+        - Segments shorter than CONFIG["min_duration_sec"] are skipped.
+        - Segments longer than CONFIG["max_duration_sec"] are processed
+          through segment_long_audio().
+        - Output audio is converted to 16 kHz mono PCM WAV.
+        - Returned records follow the same schema as process_dataset().
     """
     os.makedirs(output_dir, exist_ok=True)
     results = []
@@ -464,10 +510,79 @@ def process_timestamp_segments(data_dir: str, segment_records: list,
           f"{skipped} skipped")
     return results
 
-def process_indocsc_segmented(wav_dir: str, segment_map: dict,
-                              output_dir: str):
+from tqdm import tqdm
+
+def process_indocsc_segmented(
+        wav_dir: str,
+        segment_map: dict,
+        output_dir: str):
     """
-    TEST
+    Extract utterance-level audio segments from SEACrowd IndoCSC
+    conversational recordings using timestamp annotations.
+
+    Each source WAV contains a full conversation. The corresponding TXT
+    annotation provides start/end timestamps and transcripts for individual
+    utterances. This function cuts each utterance into a separate WAV file,
+    converts it to the project audio format (16 kHz mono PCM), and returns
+    records compatible with the standard manifest pipeline.
+
+    Args:
+        wav_dir:
+            Directory containing original IndoCSC WAV recordings.
+
+        segment_map:
+            Mapping of recording stem to timestamped utterance metadata.
+
+            Expected format:
+
+            {
+                "A0102_S0001_0_G1703": [
+                    {
+                        "start": 3.369,
+                        "end": 5.269,
+                        "text": "hal- halo",
+                        "speaker": "G1703"
+                    },
+                    ...
+                ],
+                ...
+            }
+
+        output_dir:
+            Directory where extracted utterance WAV files will be written.
+
+    Returns:
+        list[dict]:
+            Standard record objects compatible with split_data(),
+            save_manifest(), and downstream ASR training pipelines.
+
+            Example:
+
+            [
+                {
+                    "utt_id":
+                        "id_indocsc_A0102_S0001_0_G1703_s00000",
+                    "wav_path":
+                        ".../id_indocsc_A0102_S0001_0_G1703_s00000.wav",
+                    "text":
+                        "hal- halo",
+                    "speaker":
+                        "G1703",
+                    "duration":
+                        1.900,
+                    "source_stem":
+                        "A0102_S0001_0_G1703",
+                    "source_dataset":
+                        "indocsc"
+                }
+            ]
+
+    Notes:
+        - Segments shorter than CONFIG["min_duration_sec"] are skipped.
+        - Audio extraction is performed using ffmpeg.
+        - Progress is tracked at the utterance-segment level via tqdm.
+        - Output records follow the same schema as process_dataset()
+          and process_timestamp_segments().
     """
     os.makedirs(output_dir, exist_ok=True)
 
@@ -480,69 +595,86 @@ def process_indocsc_segmented(wav_dir: str, segment_map: dict,
 
     skipped = 0
 
-    for stem, segments in segment_map.items():
+    total_segments = sum(
+        len(segments)
+        for segments in segment_map.values()
+    )
 
-        src = wav_files.get(stem)
+    with tqdm(
+        total=total_segments,
+        desc="IndoCSC",
+        unit="seg"
+    ) as pbar:
 
-        if src is None:
-            skipped += 1
-            continue
+        for stem, segments in segment_map.items():
 
-        for idx, seg in enumerate(segments):
+            src = wav_files.get(stem)
 
-            start = seg["start"]
-            end   = seg["end"]
-            text  = seg["text"]
-
-            dur = end - start
-
-            if dur < CONFIG["min_duration_sec"]:
+            if src is None:
+                skipped += len(segments)
+                pbar.update(len(segments))
                 continue
 
-            utt_id = (
-                f"id_indocsc_{stem}_s{idx:05d}"
-            )
+            for idx, seg in enumerate(segments):
 
-            out_wav = os.path.join(
-                output_dir,
-                f"{utt_id}.wav"
-            )
+                start = seg["start"]
+                end = seg["end"]
+                text = seg["text"]
 
-            cmd = [
-                "ffmpeg", "-y",
-                "-i", src,
-                "-ss", str(start),
-                "-t", str(dur),
-                "-ar", str(CONFIG["sample_rate"]),
-                "-ac", "1",
-                "-acodec", "pcm_s16le",
-                out_wav,
-                "-loglevel", "error"
-            ]
+                dur = end - start
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True
-            )
+                if dur < CONFIG["min_duration_sec"]:
+                    pbar.update(1)
+                    continue
 
-            if result.returncode != 0:
-                skipped += 1
-                continue
+                utt_id = (
+                    f"id_indocsc_{stem}_s{idx:05d}"
+                )
 
-            actual = get_duration(out_wav)
+                out_wav = os.path.join(
+                    output_dir,
+                    f"{utt_id}.wav"
+                )
 
-            if actual < CONFIG["min_duration_sec"]:
-                continue
+                cmd = [
+                    "ffmpeg", "-y",
+                    "-i", src,
+                    "-ss", str(start),
+                    "-t", str(dur),
+                    "-ar", str(CONFIG["sample_rate"]),
+                    "-ac", "1",
+                    "-acodec", "pcm_s16le",
+                    out_wav,
+                    "-loglevel", "error"
+                ]
 
-            records.append({
-                "utt_id": utt_id,
-                "wav_path": out_wav,
-                "text": text.lower(),
-                "speaker": seg["speaker"],
-                "duration": round(actual, 3),
-                "source_stem": stem,
-                "source_dataset": "indocsc",
-            })
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True
+                )
+
+                if result.returncode != 0:
+                    skipped += 1
+                    pbar.update(1)
+                    continue
+
+                actual = get_duration(out_wav)
+
+                if actual < CONFIG["min_duration_sec"]:
+                    pbar.update(1)
+                    continue
+
+                records.append({
+                    "utt_id": utt_id,
+                    "wav_path": out_wav,
+                    "text": text.lower(),
+                    "speaker": seg["speaker"],
+                    "duration": round(actual, 3),
+                    "source_stem": stem,
+                    "source_dataset": "indocsc",
+                })
+
+                pbar.update(1)
 
     print(
         f"  IndoCSC: {len(records)} segments, "

@@ -696,7 +696,7 @@ def process_id_indocsc(mode='full', manifest_dir=None):
                                 "Indonesian_Conversational_Speech_Corpus", "TXT")
     
     if mode in ['audio', 'full']:
-        segment_map = load_seacrowd_indocsc(indocsc_txt)
+        segment_map = load_seacrowd_indocsc(indocsc_wav, indocsc_txt)
 
         indocsc_all = process_indocsc_segmented(
             indocsc_wav,
