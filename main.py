@@ -43,28 +43,28 @@ def main():
     
     # Registry of dataset processing functions (in order)
     processors = [
-        # # Indonesian
-        # ('id', process_id_cv),
-        # ('id', process_id_fleurs),
-        # # ('id', process_id_librivox), # skip: too much work for cleaning ejaan lama
-        # ('id', process_id_titml),
+        # Indonesian
+        ('id', process_id_cv),
+        ('id', process_id_fleurs),
+        # ('id', process_id_librivox), # skip: too much work for cleaning ejaan lama
+        ('id', process_id_titml),
         ('id', process_id_indocsc),
-        # ('id', process_id_sindodsc),
+        ('id', process_id_sindodsc),
 
-        # # Arabic
-        # ('ar', process_ar_cv),
-        # ('ar', process_ar_fleurs),
-        # ('ar', process_ar_clartts),
+        # Arabic
+        ('ar', process_ar_cv),
+        ('ar', process_ar_fleurs),
+        ('ar', process_ar_clartts),
 
-        # # English
-        # ('en', process_en_librispeech),
-        # ('en', process_en_fleurs),
-        # ('en', process_en_cv_spon),
+        # English
+        ('en', process_en_librispeech),
+        ('en', process_en_fleurs),
+        ('en', process_en_cv_spon),
 
-        # # Code-Switching
-        # ('cs', process_cs_escwa),
-        # ('cs', process_cs_hari),
-        # ('cs', process_cs_homostoria),
+        # Code-Switching
+        ('cs', process_cs_escwa),
+        ('cs', process_cs_hari),
+        ('cs', process_cs_homostoria),
     ]
     
     # Setup directories

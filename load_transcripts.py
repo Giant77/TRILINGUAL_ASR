@@ -341,83 +341,124 @@ def load_seacrowd_sindodsc(wav_dir: str, dataset_root: str) -> dict:
 
 def load_clartts(data_dir: str, parquet_files: list = None) -> dict:
     """
-    Load ClArTTS from multipart Parquet.  CHANGES V1
-    Parquet columns: 'audio' (dict with 'bytes' key), 'transcription' (Arabic text)
-    Writes extracted WAVs to data_dir/extracted/ and returns {utt_id: text}.
-    NOTE: Returns special format {utt_id: text} where utt_id is auto-generated.
-          Audio is written to data_dir/extracted/{utt_id}.wav for process_dataset.
-    
-    Args:
-        data_dir: Directory containing parquet files or extracted/ subdirectory
-        parquet_files: Optional list of specific parquet file paths to load.
-                      If None, auto-discovers all .parquet files in data_dir
-    
-    Returns: {utt_id: transcript}
+    Load ClArTTS from multipart Parquet.
+
+    Parquet columns:
+        - audio
+        - transcription
+
+    Audio is extracted to:
+
+        data_dir/extracted/
+
+    On subsequent runs, if extracted WAV files already exist,
+    extraction is skipped and only transcript metadata is loaded.
+
+    Returns:
+        {utt_id: transcript}
     """
     pq, sf = _try_parquet_import()
     import pyarrow.parquet as pq_mod
 
     result = {}
-    out_dir = Path(data_dir) / 'extracted'
+
+    out_dir = Path(data_dir) / "extracted"
     out_dir.mkdir(exist_ok=True)
 
-    # Use specified parquet files or auto-discover
+    existing_wavs = list(out_dir.glob("*.wav"))
+    extraction_needed = len(existing_wavs) == 0
+
+    if extraction_needed:
+        print("  [ClArTTS] No extracted audio found; extracting from parquet")
+    else:
+        print(
+            f"  [ClArTTS] Found {len(existing_wavs):,} existing WAV files "
+            f"in {out_dir}; skipping audio extraction"
+        )
+
+    # Discover parquet files
     if parquet_files is not None:
         files_to_load = [Path(pf) for pf in parquet_files]
     else:
-        files_to_load = sorted(Path(data_dir).glob('*.parquet'))
+        files_to_load = sorted(Path(data_dir).glob("*.parquet"))
+
         if not files_to_load:
-            # Handle nested Dataset/ subdir
-            files_to_load = sorted(Path(data_dir).rglob('*.parquet'))
+            files_to_load = sorted(Path(data_dir).rglob("*.parquet"))
 
     if not files_to_load:
         print(f"  WARN [ClArTTS]: No parquet files in {data_dir}")
         return result
 
     global_idx = 0
+
     for pf in files_to_load:
+
         table = pq_mod.read_table(str(pf))
         rows = table.to_pylist()
+
         for row in rows:
-            utt_id   = f"clartts_{global_idx:06d}"
-            text     = row.get('transcription', row.get('text', ''))
-            audio_v  = row.get('audio', {})
+
+            utt_id = f"clartts_{global_idx:06d}"
+
+            text = row.get(
+                "transcription",
+                row.get("text", "")
+            )
 
             if not text:
                 global_idx += 1
                 continue
 
-            # Extract audio bytes
-            if isinstance(audio_v, dict):
-                audio_bytes = audio_v.get('bytes', b'')
-            elif isinstance(audio_v, bytes):
-                audio_bytes = audio_v
-            else:
-                global_idx += 1
-                continue
-
-            if not audio_bytes:
-                global_idx += 1
-                continue
-
-            # Write WAV
             out_wav = out_dir / f"{utt_id}.wav"
-            if not out_wav.exists():
-                try:
-                    with io.BytesIO(audio_bytes) as bio:
-                        data, sr = sf.read(bio)
-                    sf.write(str(out_wav), data, sr)
-                except Exception as e:
-                    print(f"  WARN [ClArTTS] write error {utt_id}: {e}")
+
+            if extraction_needed:
+
+                audio_v = row.get("audio", {})
+
+                if isinstance(audio_v, dict):
+                    audio_bytes = audio_v.get("bytes", b"")
+
+                elif isinstance(audio_v, bytes):
+                    audio_bytes = audio_v
+
+                else:
                     global_idx += 1
                     continue
 
-            result[utt_id] = text.strip()
+                if not audio_bytes:
+                    global_idx += 1
+                    continue
+
+                try:
+                    with io.BytesIO(audio_bytes) as bio:
+                        data, sr = sf.read(bio)
+
+                    sf.write(
+                        str(out_wav),
+                        data,
+                        sr
+                    )
+
+                except Exception as e:
+                    print(
+                        f"  WARN [ClArTTS] write error "
+                        f"{utt_id}: {e}"
+                    )
+                    global_idx += 1
+                    continue
+
+            # Only keep entries whose WAV exists
+            if out_wav.exists():
+                result[utt_id] = text.strip()
+
             global_idx += 1
 
-    print(f"  [ClArTTS] Extracted {len(result)} utterances to {out_dir}")
-    return result
+    print(
+        f"  [ClArTTS] Loaded {len(result):,} utterances "
+        f"from {len(files_to_load)} parquet file(s)"
+    )
 
+    return result
 
 # ─── CODE-SWITCHING ───────────────────────────────────────────────────────────
 

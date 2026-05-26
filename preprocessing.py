@@ -30,16 +30,13 @@ import json
 import os
 import string
 import random
-import subprocess
 import unicodedata
 from collections import defaultdict
 from pathlib import Path
 
-from tqdm import tqdm
-
 from preprocess_audio import (
-    process_dataset, process_timestamp_segments, CONFIG, 
-    get_duration, process_escwa_segmented, process_indocsc_segmented
+    process_dataset, process_timestamp_segments,  
+    process_escwa_segmented, process_indocsc_segmented
 )
 from load_transcripts import (
     load_mozilla_cv, load_fleurs, load_titml_idn,
@@ -246,12 +243,15 @@ def normalize_whitespace(text: str) -> str:
 
 def normalize_arabic(text: str, araby=None) -> str:
     if araby:
+        # Remove harakat/tashkeel
         text = araby.strip_diacritics(text)
-        text = araby.normalize_hamza(text)
+
+        # Normalize lam-alef ligatures
         text = araby.normalize_ligature(text)
 
     # Remove tatweel
     text = text.replace('ـ', '')
+    text = normalize_whitespace(text)
 
     return text
 
