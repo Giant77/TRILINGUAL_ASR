@@ -597,12 +597,15 @@ def load_homostoria(data_dir: str) -> dict:
 
 def load_librispeech_parquet(data_dir: str) -> dict:
     """
-    Load LibriSpeech from HuggingFace parquet.  NEW in CHANGES V1
-    Parquet columns: 'file'(unused), 'audio'(bytes), 'text'(uppercase),
-                     'speaker_id', 'chapter_id', 'id'
-    Writes extracted WAVs to data_dir/extracted/ and returns {utt_id: text}.
-    'id' column used as utt_id (e.g., '1272-128104-0000').
-    Returns: {utt_id: text_lowercase}
+    Load LibriSpeech HF parquet dataset.
+
+    Audio is extracted into:
+
+        data_dir/extracted/
+
+    If extracted WAV files already exist,
+    audio extraction is skipped and only
+    transcript metadata is rebuilt.
     """
     pq, sf = _try_parquet_import()
     import pyarrow.parquet as pq_mod
@@ -610,6 +613,21 @@ def load_librispeech_parquet(data_dir: str) -> dict:
     result = {}
     out_dir = Path(data_dir) / 'extracted'
     out_dir.mkdir(exist_ok=True)
+
+    existing_wavs = list(out_dir.glob("*.wav"))
+    extraction_needed = len(existing_wavs) == 0
+
+    if extraction_needed:
+        print(
+            "  [LibriSpeech] No extracted audio found; "
+            "extracting from parquet"
+        )
+    else:
+        print(
+            f"  [LibriSpeech] Found "
+            f"{len(existing_wavs):,} existing WAV files "
+            f"in {out_dir}; skipping extraction"
+        )
 
     parquet_files = sorted(Path(data_dir).glob('*.parquet'))
     if not parquet_files:
@@ -642,18 +660,44 @@ def load_librispeech_parquet(data_dir: str) -> dict:
                 continue
 
             out_wav = out_dir / f"{utt_id}.wav"
-            if not out_wav.exists():
+            if extraction_needed:
+
+                if isinstance(audio_v, dict):
+                    audio_bytes = audio_v.get('bytes', b'')
+                elif isinstance(audio_v, bytes):
+                    audio_bytes = audio_v
+                else:
+                    continue
+
+                if not audio_bytes:
+                    continue
+
                 try:
                     with io.BytesIO(audio_bytes) as bio:
                         data, sr = sf.read(bio)
-                    sf.write(str(out_wav), data, sr)
+
+                    sf.write(
+                        str(out_wav),
+                        data,
+                        sr
+                    )
+
                 except Exception as e:
                     print(f"  WARN [LibriSpeech] {utt_id}: {e}")
                     continue
 
-            result[utt_id] = text
+            if out_wav.exists():
+                result[utt_id] = text
 
-    print(f"  [LibriSpeech] Extracted {len(result)} utterances to {out_dir}")
+    action = (
+        "Extracted"
+        if extraction_needed
+        else "Loaded"
+    )
+
+    print(
+        f"  [LibriSpeech] {action} {len(result):,} utterances from {len(parquet_files)} parquet file(s)"
+    )
     return result
 
 def load_mozilla_spontant(tsv_dir: str) -> dict:
