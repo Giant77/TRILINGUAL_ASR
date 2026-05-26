@@ -215,7 +215,6 @@ def load_seacrowd_indocsc(wav_dir: str, txt_dir: str) -> dict:
                 segments.append({
                     "start": start,
                     "end": end,
-                    "speaker": speaker,
                     "text": transcript.strip()
                 })
 

@@ -718,10 +718,10 @@ def process_id_indocsc(mode='full', manifest_dir=None):
             indocsc_all = data['all_records']
         
         split_records = split_data(indocsc_all)
-        
+
         if manifest_dir is None:
             manifest_dir = os.path.join(BASE_OUT, "manifests")
-        
+
         save_manifest(dataset_key, 'id', '8_1_1',
                       'SEACrowd IndoCSC - no predetermined splits; 8:1:1 applied',
                       split_records, manifest_dir=manifest_dir)

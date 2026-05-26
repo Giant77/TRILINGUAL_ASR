@@ -425,11 +425,6 @@ def process_timestamp_segments(data_dir: str, segment_records: list,
         end_sec    = rec['end_sec']
         text       = rec['text'].strip()
         duration   = end_sec - start_sec
-        speaker = (
-            rec.get(speaker_field)
-            if speaker_field and speaker_field in rec
-            else utt_id
-        )
 
         # Extract segment with ffmpeg
         src_path = audio_index.get(audio_stem.lower())
@@ -466,7 +461,7 @@ def process_timestamp_segments(data_dir: str, segment_records: list,
                 "utt_id":      utt_id,
                 "wav_path":    out_wav,
                 "text":        text,
-                "speaker":     speaker,
+                "speaker":     utt_id,
                 "duration":    round(actual_dur, 3),
                 "source_stem": audio_stem,
                 "source_dataset": dataset_name,
@@ -485,7 +480,7 @@ def process_timestamp_segments(data_dir: str, segment_records: list,
                     "utt_id":      seg_id,
                     "wav_path":    seg_path,
                     "text":        seg_text,
-                    "speaker":     speaker,
+                    "speaker":     utt_id,
                     "duration":    round(seg_dur, 3),
                     "source_stem": audio_stem,
                     "source_dataset": dataset_name,
@@ -668,7 +663,7 @@ def process_indocsc_segmented(
                     "utt_id": utt_id,
                     "wav_path": out_wav,
                     "text": text.lower(),
-                    "speaker": seg["speaker"],
+                    "speaker": utt_id,
                     "duration": round(actual, 3),
                     "source_stem": stem,
                     "source_dataset": "indocsc",
