@@ -333,139 +333,378 @@ def preprocess_transcripts(lang: str, records: list, dataset_key: str = None) ->
 
     return records
 
-def balance_lang_data(lang_datasets: dict) -> dict:
+def append_short_segments(
+        lang: str,
+        records: list,
+        manifest_dir: str = MANIFEST_DIR):
     """
-    Balance data across languages to match least-data language by hours.
-    
-    Input: {dataset_key: {'all_records': [...], 'split_type': ..., 'is_predetermined': ...}}
-    Strategy:
-      1. Calculate total hours per language
-      2. Find language with least hours
-      3. Reduce other languages to match by removing from non-predetermined datasets first
-      4. Log before/after statistics
-    
+    Append removed short utterances to short_segments_<lang>.json.
+
+    If the manifest already exists, records are appended.
+    Otherwise a new manifest is created.
+
     Args:
-        lang_datasets: Dataset metadata dict    
-    Returns: {dataset_key: reduced_records}
+        lang:
+            Language identifier.
+
+        records:
+            List of removed record dictionaries.
+
+        manifest_dir:
+            Output manifest directory.
+            Defaults to MANIFEST_DIR.
+
+    Returns:
+        None
     """
-    # Group datasets by language
+    if not records:
+        return
+
+    os.makedirs(manifest_dir, exist_ok=True)
+
+    path = os.path.join(
+        manifest_dir,
+        f"short_segments_{lang}.json"
+    )
+
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+    else:
+        manifest = {
+            "lang": lang,
+            "total_utts": 0,
+            "total_hours": 0.0,
+            "short_records": []
+        }
+
+    manifest["short_records"].extend(records)
+
+    manifest["total_utts"] = len(
+        manifest["short_records"]
+    )
+
+    manifest["total_hours"] = round(
+        sum(
+            r.get("duration", 0)
+            for r in manifest["short_records"]
+        ) / 3600.0,
+        2
+    )
+
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(
+            manifest,
+            f,
+            ensure_ascii=False,
+            indent=2
+        )
+
+def balance_lang_data(
+        lang_datasets: dict,
+        short_duration_threshold: float = 3.0,
+        short_manifest_dir: str = MANIFEST_DIR
+) -> dict:
+    """
+    Balance language hours by reducing higher-resource languages to the
+    duration of the smallest language.
+
+    Reduction is performed in two stages:
+
+      1. Short-utterance pruning
+         Remove utterances shorter than short_duration_threshold,
+         starting from the shortest utterances first.
+
+      2. Standard balancing
+         If the language remains above the target duration after
+         short-utterance pruning, continue removing utterances until
+         the target language-hour ratio is reached.
+
+    Removed short utterances are appended to
+    short_segments_<lang>.json.
+
+    Args:
+        lang_datasets:
+            Dataset metadata dictionary.
+
+        short_duration_threshold:
+            Duration threshold (seconds) used for initial pruning.
+
+        short_manifest_dir:
+            Directory containing short-segment manifests.
+            Defaults to MANIFEST_DIR.
+
+    Returns:
+        {
+            dataset_key: balanced_records
+        }
+
+    Notes:
+        - Code-switching datasets (cs_*) are excluded.
+        - Non-predetermined datasets are reduced before predetermined
+          datasets.
+        - Short utterances are removed before standard balancing.
+        - If short-utterance pruning alone reaches the target language
+          hours, no additional balancing is performed.
+    """
     lang_hours = defaultdict(float)
     lang_datasets_by_lang = defaultdict(list)
-    result = {}  # initialize early
+
+    result = {}
 
     for key, data in lang_datasets.items():
-        # Extract language from key (id_cv -> id, ar_clartts -> ar, etc)
+
         lang = key.split('_')[0]
 
         if lang == "cs":
-            # keep untouched, exclude from balancing
             result[key] = data['all_records']
             continue
 
         records = data['all_records']
+
         hours = calculate_hours(records)
+
         lang_hours[lang] += hours
         lang_datasets_by_lang[lang].append((key, data))
-    
-    min_lang = min(lang_hours, key=lang_hours.get)
+
+    min_lang = min(
+        lang_hours,
+        key=lang_hours.get
+    )
+
     target_hours = lang_hours[min_lang]
-    
-    print("\n" + "="*70)
+
+    print("\n" + "=" * 70)
     print("PRE-BALANCE: Total hours per language")
-    print("="*70)
+    print("=" * 70)
+
     for lang in sorted(lang_hours.keys()):
-        print(f"  {lang.upper()}: {lang_hours[lang]:.1f}h")
-    print(f"Target (min): {min_lang.upper()} = {target_hours:.1f}h")
-    
-    # Balance each language
+        print(
+            f"  {lang.upper()}: "
+            f"{lang_hours[lang]:.1f}h"
+        )
+
+    print(
+        f"Target (min): "
+        f"{min_lang.upper()} = {target_hours:.1f}h"
+    )
+
     result = {}
     reduction_log = []
-    
+
     for lang in sorted(lang_datasets_by_lang.keys()):
+
         current_hours = lang_hours[lang]
-        
-        if current_hours <= target_hours * 1.01:  # Allow 1% tolerance
-            # No reduction needed
+
+        if current_hours <= target_hours * 1.01:
+
             for key, data in lang_datasets_by_lang[lang]:
                 result[key] = data['all_records']
+
             continue
-        
-        # Need to reduce
-        reduce_by = current_hours - target_hours
-        
-        # Sort datasets: non-predetermined first (preferred for removal), then predetermined
+
         datasets = sorted(
             lang_datasets_by_lang[lang],
-            key=lambda x: (x[1]['is_predetermined'], -len(x[1]['all_records'])),
-            reverse=False  # non-predetermined (False) come first
+            key=lambda x: (
+                x[1]['is_predetermined'],
+                -len(x[1]['all_records'])
+            )
         )
-        
-        remaining_to_reduce = reduce_by
-        reduced_datasets = {}
-        
+
+        # Stage 1: Remove short utterances first
+        short_candidates = []
+
         for key, data in datasets:
-            records = data['all_records']
+
+            for rec in data['all_records']:
+
+                dur = rec.get('duration', 0)
+
+                if dur < short_duration_threshold:
+
+                    short_candidates.append(
+                        (dur, key, rec)
+                    )
+
+        short_candidates.sort(
+            key=lambda x: x[0]
+        )
+
+        excess_hours = (
+            current_hours -
+            target_hours
+        )
+
+        removed_short_records = []
+        removed_hours = 0.0
+
+        for dur, key, rec in short_candidates:
+            if removed_hours >= excess_hours:
+                break
+
+            removed_short_records.append(
+                (key, rec)
+            )
+
+            removed_hours += dur / 3600.0
+
+        removed_ids = {
+            rec["utt_id"]
+            for _, rec in removed_short_records
+        }
+
+        pruned_datasets = {}
+
+        for key, data in datasets:
+            pruned_records = [
+                r
+                for r in data['all_records']
+                if r['utt_id'] not in removed_ids
+            ]
+
+            pruned_datasets[key] = pruned_records
+
+        append_short_segments(
+            lang,
+            [
+                rec
+                for _, rec
+                in removed_short_records
+            ],
+            short_manifest_dir
+        )
+
+        hours_after_short = sum(
+            calculate_hours(records)
+            for records in pruned_datasets.values()
+        )
+
+        reduction_log.append({
+            'dataset': f'{lang}_short_pruning',
+            'lang': lang,
+            'orig_count': sum(
+                len(data['all_records'])
+                for _, data in datasets
+            ),
+            'new_count': sum(
+                len(records)
+                for records in pruned_datasets.values()
+            ),
+            'orig_hours': round(current_hours, 2),
+            'new_hours': round(hours_after_short, 2),
+            'is_predetermined': False,
+        })
+
+        # Balanced already
+        if hours_after_short <= target_hours * 1.01:
+            for key, records in pruned_datasets.items():
+                result[key] = records
+            continue
+
+        # Stage 2: Standard balancing
+        remaining_to_reduce = (
+            hours_after_short -
+            target_hours
+        )
+
+        reduced_datasets = {}
+
+        for key, data in datasets:
+            records = pruned_datasets[key]
             hours = calculate_hours(records)
-            
+
             if remaining_to_reduce <= 0:
                 reduced_datasets[key] = records
                 continue
-            
-            # Calculate how many hours to remove from this dataset
-            reduce_from_dataset = min(hours, remaining_to_reduce)
-            keep_hours = hours - reduce_from_dataset
-            
-            # Calculate fraction to keep
+
+            reduce_from_dataset = min(
+                hours,
+                remaining_to_reduce
+            )
+
+            keep_hours = (
+                hours - reduce_from_dataset
+            )
+
             if hours > 0:
-                keep_fraction = keep_hours / hours
-                target_count = max(1, int(len(records) * keep_fraction))
-                
-                # Sort by duration descending, keep longest utterances
-                sorted_records = sorted(records, key=lambda r: r.get('duration', 0), reverse=True)
-                kept_records = sorted_records[:target_count]
+                keep_fraction = (
+                    keep_hours / hours
+                )
+
+                target_count = max(
+                    1, int(len(records) * keep_fraction)
+                )
+
+                sorted_records = sorted(
+                    records,
+                    key=lambda r: r.get('duration', 0),
+                    reverse=True
+                )
+
+                kept_records = (
+                    sorted_records[:target_count]
+                )
+
             else:
                 kept_records = records
-            
+
             reduced_datasets[key] = kept_records
-            remaining_to_reduce -= reduce_from_dataset
-            
+            remaining_to_reduce -= (
+                hours - calculate_hours(kept_records)
+            )
+
             reduction_log.append({
                 'dataset': key,
                 'lang': lang,
                 'orig_count': len(records),
                 'new_count': len(kept_records),
                 'orig_hours': round(hours, 2),
-                'new_hours': round(calculate_hours(kept_records), 2),
+                'new_hours': round(calculate_hours(kept_records),  2),
                 'is_predetermined': data['is_predetermined'],
             })
-        
+
         for key, records in reduced_datasets.items():
             result[key] = records
-    
-    # Log reduction details
+
     if reduction_log:
-        print("\n" + "="*70)
-        print("REDUCTION LOG (to balance languages)")
-        print("="*70)
+        print("\n" + "=" * 70)
+        print("REDUCTION LOG")
+        print("=" * 70)
+
         for log in reduction_log:
-            ptype = "PREDETERMINED" if log['is_predetermined'] else "NON-PREDETERMINED"
-            msg = f"  {log['dataset']:20} ({ptype:16}) | "
-            msg += f"{log['orig_count']:6} → {log['new_count']:6} utts | "
-            msg += f"{log['orig_hours']:7.2f}h → {log['new_hours']:7.2f}h"
-            print(msg)
-    
-    # Log post-balance statistics
+            ptype = (
+                "PREDETERMINED"
+                if log['is_predetermined']
+                else "NON-PREDETERMINED"
+            )
+
+            print(
+                f"{log['dataset']:20} "
+                f"({ptype:16}) | "
+                f"{log['orig_count']:6} -> "
+                f"{log['new_count']:6} utts | "
+                f"{log['orig_hours']:7.2f}h -> "
+                f"{log['new_hours']:7.2f}h"
+            )
+
     lang_hours_post = defaultdict(float)
+
     for key, records in result.items():
         lang = key.split('_')[0]
-        lang_hours_post[lang] += calculate_hours(records)
-    
-    print("\n" + "="*70)
+        lang_hours_post[lang] += (calculate_hours(records))
+
+    print("\n" + "=" * 70)
     print("POST-BALANCE: Total hours per language")
-    print("="*70)
-    for lang in sorted(lang_hours_post.keys()):
-        print(f"  {lang.upper()}: {lang_hours_post[lang]:.1f}h")
-    
+    print("=" * 70)
+
+    for lang in sorted(
+            lang_hours_post.keys()):
+
+        print(
+            f"{lang.upper()}: "
+            f"{lang_hours_post[lang]:.1f}h"
+        )
+
     return result
 
 # ─── DATASET WRAPPER FUNCTIONS ──────────────────────────────────────────────
