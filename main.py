@@ -16,7 +16,7 @@ from preprocess_audio import *
 def parse_args():
     """Parse command line arguments for stage control."""
     parser = argparse.ArgumentParser(description="Trilingual ASR Preprocessing Pipeline")
-    parser.add_argument('--start-stage', type=int, default=1, 
+    parser.add_argument('--start-stage', '--stage', type=int, default=1, 
                         help='Start stage (default: 1)')
     parser.add_argument('--end-stage', '--stop-stage', type=int, default=1000, 
                         help='End stage (default: 1000)')
