@@ -333,44 +333,55 @@ def preprocess_transcripts(lang: str, records: list, dataset_key: str = None) ->
 
     return records
 
-def append_short_segments(
-        lang: str,
-        records: list,
-        manifest_dir: str = MANIFEST_DIR):
+def append_short_segments(lang: str, records: list, source_manifest_dir: str, output_manifest_dir: str):
     """
-    Append removed short utterances to short_segments_<lang>.json.
-
-    If the manifest already exists, records are appended.
-    Otherwise a new manifest is created.
+    Append records to short-segment manifest.
+    Existing manifest is read from source_manifest_dir.
+    Updated manifest is always written to output_manifest_dir.
 
     Args:
         lang:
             Language identifier.
-
         records:
-            List of removed record dictionaries.
-
-        manifest_dir:
-            Output manifest directory.
-            Defaults to MANIFEST_DIR.
-
-    Returns:
-        None
+            Records to append.
+        source_manifest_dir:
+            Directory containing existing manifests.
+        output_manifest_dir:
+            Directory where merged manifest is saved.
     """
     if not records:
         return
 
-    os.makedirs(manifest_dir, exist_ok=True)
+    os.makedirs(output_manifest_dir, exist_ok=True)
 
-    path = os.path.join(
-        manifest_dir,
-        f"short_segments_{lang}.json"
+    filename = f"short_segments_{lang}.json"
+
+    source_path = os.path.join(
+        source_manifest_dir,
+        filename
     )
 
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            manifest = json.load(f)
-    else:
+    output_path = os.path.join(
+        output_manifest_dir,
+        filename
+    )
+
+    manifest = None
+
+    if os.path.exists(source_path):
+        try:
+            if os.path.getsize(source_path) > 0:
+                with open(source_path, "r", encoding="utf-8") as f:
+                    manifest = json.load(f)
+
+        except (
+            json.JSONDecodeError,
+            OSError,
+            ValueError
+        ):
+            manifest = None
+
+    if not manifest:
         manifest = {
             "lang": lang,
             "total_utts": 0,
@@ -379,20 +390,14 @@ def append_short_segments(
         }
 
     manifest["short_records"].extend(records)
-
-    manifest["total_utts"] = len(
-        manifest["short_records"]
-    )
+    manifest["total_utts"] = len(manifest["short_records"])
 
     manifest["total_hours"] = round(
-        sum(
-            r.get("duration", 0)
-            for r in manifest["short_records"]
-        ) / 3600.0,
+        sum(r.get("duration", 0) for r in manifest["short_records"]) / 3600.0,
         2
     )
 
-    with open(path, "w", encoding="utf-8") as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         json.dump(
             manifest,
             f,
@@ -403,8 +408,8 @@ def append_short_segments(
 def balance_lang_data(
         lang_datasets: dict,
         short_duration_threshold: float = 3.0,
-        short_manifest_dir: str = MANIFEST_DIR
-) -> dict:
+        original_dir: str="",
+        balanced_dir: str=""):
     """
     Balance language hours by reducing higher-resource languages to the
     duration of the smallest language.
@@ -565,13 +570,10 @@ def balance_lang_data(
             pruned_datasets[key] = pruned_records
 
         append_short_segments(
-            lang,
-            [
-                rec
-                for _, rec
-                in removed_short_records
-            ],
-            short_manifest_dir
+            lang=lang,
+            records=[r for _, r in removed_short_records],
+            source_manifest_dir=original_dir,
+            output_manifest_dir=balanced_dir
         )
 
         hours_after_short = sum(
