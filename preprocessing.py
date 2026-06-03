@@ -333,7 +333,7 @@ def preprocess_transcripts(lang: str, records: list, dataset_key: str = None) ->
 
     return records
 
-def append_short_segments(lang: str, records: list, source_manifest_dir: str, output_manifest_dir: str):
+def append_short_segments(lang: str, records: list, source_manifest_dir: Path, output_manifest_dir: Path):
     """
     Append records to short-segment manifest.
     Existing manifest is read from source_manifest_dir.
@@ -351,6 +351,7 @@ def append_short_segments(lang: str, records: list, source_manifest_dir: str, ou
     """
     if not records:
         return
+
 
     filename = f"short_segments_{lang}.json"
 
@@ -403,11 +404,7 @@ def append_short_segments(lang: str, records: list, source_manifest_dir: str, ou
             indent=2
         )
 
-def balance_lang_data(
-        lang_datasets: dict,
-        short_duration_threshold: float = 3.0,
-        original_dir: str="",
-        balanced_dir: str=""):
+def balance_lang_data(lang_datasets: dict, original_dir: Path, balanced_dir: Path, short_duration_threshold: float = 3.0):
     """
     Balance language hours by reducing higher-resource languages to the
     duration of the smallest language.

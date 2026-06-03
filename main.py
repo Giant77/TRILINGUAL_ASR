@@ -149,7 +149,12 @@ def main():
         print("STAGE 4: Balancing/Re-splitting")
         print("="*70)
         
-        balanced_records = balance_lang_data(lang_datasets)
+        balanced_records = balance_lang_data(
+            lang_datasets=lang_datasets,
+            original_dir=original_dir,
+            balanced_dir=balanced_dir,
+            short_duration_threshold=3
+        )
         
         for dataset_key, original_result in lang_datasets.items():
             lang = dataset_key.split('_')[0]
