@@ -352,8 +352,6 @@ def append_short_segments(lang: str, records: list, source_manifest_dir: str, ou
     if not records:
         return
 
-    os.makedirs(output_manifest_dir, exist_ok=True)
-
     filename = f"short_segments_{lang}.json"
 
     source_path = os.path.join(
