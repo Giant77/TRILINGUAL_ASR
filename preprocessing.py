@@ -115,21 +115,21 @@ def calculate_hours(records: list) -> float:
 def split_data(records: list, train_split: float=0.80, dev_split: float=0.10) -> dict:
     """
     Speaker-independent 8:1:1 split with fallback to utterance-level splitting.
-    
+
     Strategy:
       1. If ≥ 5 unique speakers: use speaker-level split (speaker-independent)
       2. Otherwise: use utterance-level split (reproducible but not speaker-independent)
-    
+
     Returns {'train': [...], 'dev': [...], 'test': [...]}.
     """
     random.seed(SEED)
     shuffled = records.copy()
     random.shuffle(shuffled)
-    
+
     n = len(shuffled)
     n_train = int(n * train_split)
     n_dev   = int(n * dev_split)
-    
+
     return {
         'train': shuffled[:n_train],
         'dev': shuffled[n_train:n_train+n_dev],
@@ -150,7 +150,7 @@ def split_partial_carve_dev(train_records: list,
 
     n = len(shuffled)
     n_new_train = int(n * (train_split / 0.9))
-    
+
     return {
         'train': shuffled[:n_new_train],
         'dev': shuffled[n_new_train:],
@@ -180,13 +180,13 @@ def save_manifest(key: str, lang: str,
                   split_records: dict, manifest_dir: str = None) -> None:
     """
     Save manifest JSON with split metadata including duration statistics.
-    
+
     Args:
         manifest_dir: Optional directory to save manifest. Defaults to MANIFEST_DIR.
     """
     if manifest_dir is None:
         manifest_dir = MANIFEST_DIR
-    
+
     total  = sum(len(v) for v in split_records.values())
     hours  = sum(calculate_hours(v) for v in split_records.values())
     counts = {s: len(v) for s, v in split_records.items()}
@@ -219,7 +219,7 @@ def save_manifest(key: str, lang: str,
     hours_str = " | ".join(
         f"{s}={hours_per_split[s]:.1f}h" for s in ['train', 'dev', 'test']
     )
-    
+
     split_tag = {
         'predetermined_full':           'OK: PREDETERMINED (full)',
         'predetermined_partial_carved': 'WARNING: PREDETERMINED (partial→carved dev)',
@@ -234,6 +234,9 @@ def remove_invisible_chars(text: str) -> str:
         c for c in text
         if unicodedata.category(c) != 'Cf'
     )
+
+def remove_transcript_tags(text: str) -> str:
+    return re.sub(r'\[[^\]]*\]|\([^)]*\)|\{[^}]*\}|<[^>]*>', ' ', text)
 
 def remove_punctuation(text: str) -> str:
     return text.translate(str.maketrans('', '', string.punctuation))
@@ -266,6 +269,7 @@ def contains_arabic(text: str) -> bool:
     )
 
 def normalize_common(text: str) -> str:
+    text = remove_transcript_tags(text)
     # Unicode NFC normalization
     text = unicodedata.normalize("NFKC", text)
     text = remove_invisible_chars(text)
@@ -276,7 +280,7 @@ def normalize_common(text: str) -> str:
 def preprocess_transcripts(lang: str, records: list, dataset_key: str = None) -> None:
     """
     Preprocess transcripts based on language.
-    
+
     Supported languages:
       - ar (Arabic): Remove diacritics using pyarabic library
       - id (Indonesian): Convert to lowercase
@@ -291,7 +295,7 @@ def preprocess_transcripts(lang: str, records: list, dataset_key: str = None) ->
         has_pyarabic = False
         if lang == 'ar':
             print("WARNING [pyarabic]: Not installed - skipping Arabic diacritic removal")
-    
+
     for record in records:
         text = record.get('text', '')
         if not text:
@@ -322,7 +326,7 @@ def preprocess_transcripts(lang: str, records: list, dataset_key: str = None) ->
                 else:
                     if dataset_key:
                         print(
-                            f"    WARNING [{dataset_key}]: "
+                            f"WARNING [{dataset_key}]: "
                             f"pyarabic not installed - skipping Arabic normalization"
                         )
 
@@ -404,7 +408,7 @@ def append_short_segments(lang: str, records: list, source_manifest_dir: Path, o
             indent=2
         )
 
-def balance_lang_data(lang_datasets: dict, original_dir: Path, balanced_dir: Path, short_duration_threshold: float = 3.0):
+def balance_lang_data(original_dir: Path, balanced_dir: Path, short_duration_threshold: float = 3.0):
     """
     Balance language hours by reducing higher-resource languages to the
     duration of the smallest language.
@@ -449,29 +453,62 @@ def balance_lang_data(lang_datasets: dict, original_dir: Path, balanced_dir: Pat
     """
     lang_hours = defaultdict(float)
     lang_datasets_by_lang = defaultdict(list)
-
     result = {}
 
-    for key, data in lang_datasets.items():
-
-        lang = key.split('_')[0]
-
-        if lang == "cs":
-            result[key] = data['all_records']
-            continue
-
-        records = data['all_records']
-
-        hours = calculate_hours(records)
-
-        lang_hours[lang] += hours
-        lang_datasets_by_lang[lang].append((key, data))
-
-    min_lang = min(
-        lang_hours,
-        key=lang_hours.get
+    # ---------------------------------------------------------
+    # Load all cleaned manifests
+    # ---------------------------------------------------------
+    manifest_files = sorted(
+        f for f in os.listdir(original_dir)
+        if f.endswith("_manifest.json")
     )
 
+    for manifest_file in manifest_files:
+        manifest_path = os.path.join(
+            original_dir,
+            manifest_file
+        )
+
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+
+        dataset_key = manifest["dataset_key"]
+        lang = manifest["lang"]
+
+        records = (
+            manifest.get("train", [])
+            + manifest.get("dev", [])
+            + manifest.get("test", [])
+        )
+
+        split_source = manifest.get("split_source", "8_1_1")
+        is_predetermined = (split_source == "predetermined_full")
+
+        data = {
+            "all_records": records,
+            "is_predetermined": is_predetermined,
+        }
+
+        # CS datasets are excluded from balancing
+        if lang == "cs":
+            result[dataset_key] = records
+            continue
+
+        hours = calculate_hours(records)
+        lang_hours[lang] += hours
+
+        lang_datasets_by_lang[lang].append(
+            (dataset_key, data)
+        )
+
+    if not lang_hours:
+        print("No language manifests found for balancing.")
+        return result
+
+    # ---------------------------------------------------------
+    # Determine balancing target
+    # ---------------------------------------------------------
+    min_lang = min(lang_hours, key=lang_hours.get)
     target_hours = lang_hours[min_lang]
 
     print("\n" + "=" * 70)
@@ -479,62 +516,45 @@ def balance_lang_data(lang_datasets: dict, original_dir: Path, balanced_dir: Pat
     print("=" * 70)
 
     for lang in sorted(lang_hours.keys()):
-        print(
-            f"  {lang.upper()}: "
-            f"{lang_hours[lang]:.1f}h"
-        )
+        print(f"{lang.upper()}: {lang_hours[lang]:.1f}h")
 
-    print(
-        f"Target (min): "
-        f"{min_lang.upper()} = {target_hours:.1f}h"
-    )
+    print(f"Target (min): {min_lang.upper()} = {target_hours:.1f}h")
 
-    result = {}
     reduction_log = []
 
+    # ---------------------------------------------------------
+    # Balance each language
+    # ---------------------------------------------------------
     for lang in sorted(lang_datasets_by_lang.keys()):
-
         current_hours = lang_hours[lang]
 
+        # Already smallest language
         if current_hours <= target_hours * 1.01:
-
             for key, data in lang_datasets_by_lang[lang]:
-                result[key] = data['all_records']
+                result[key] = data["all_records"]
 
             continue
 
         datasets = sorted(
             lang_datasets_by_lang[lang],
-            key=lambda x: (
-                x[1]['is_predetermined'],
-                -len(x[1]['all_records'])
-            )
+            key=lambda x: (x[1]["is_predetermined"], -len(x[1]["all_records"]))
         )
 
+        # -----------------------------------------------------
         # Stage 1: Remove short utterances first
+        # -----------------------------------------------------
         short_candidates = []
 
         for key, data in datasets:
-
-            for rec in data['all_records']:
-
-                dur = rec.get('duration', 0)
+            for rec in data["all_records"]:
+                dur = rec.get("duration", 0)
 
                 if dur < short_duration_threshold:
+                    short_candidates.append((dur, key, rec))
 
-                    short_candidates.append(
-                        (dur, key, rec)
-                    )
+        short_candidates.sort(key=lambda x: x[0])
 
-        short_candidates.sort(
-            key=lambda x: x[0]
-        )
-
-        excess_hours = (
-            current_hours -
-            target_hours
-        )
-
+        excess_hours = (current_hours -target_hours)
         removed_short_records = []
         removed_hours = 0.0
 
@@ -546,23 +566,19 @@ def balance_lang_data(lang_datasets: dict, original_dir: Path, balanced_dir: Pat
                 (key, rec)
             )
 
-            removed_hours += dur / 3600.0
+            removed_hours += (dur / 3600.0)
 
-        removed_ids = {
-            rec["utt_id"]
-            for _, rec in removed_short_records
-        }
-
+        removed_ids = {rec["utt_id"] for _, rec in removed_short_records}
         pruned_datasets = {}
 
         for key, data in datasets:
             pruned_records = [
                 r
-                for r in data['all_records']
-                if r['utt_id'] not in removed_ids
+                for r in data["all_records"]
+                if r["utt_id"] not in removed_ids
             ]
 
-            pruned_datasets[key] = pruned_records
+            pruned_datasets[key] = (pruned_records)
 
         append_short_segments(
             lang=lang,
@@ -577,33 +593,34 @@ def balance_lang_data(lang_datasets: dict, original_dir: Path, balanced_dir: Pat
         )
 
         reduction_log.append({
-            'dataset': f'{lang}_short_pruning',
-            'lang': lang,
-            'orig_count': sum(
-                len(data['all_records'])
-                for _, data in datasets
-            ),
-            'new_count': sum(
-                len(records)
-                for records in pruned_datasets.values()
-            ),
-            'orig_hours': round(current_hours, 2),
-            'new_hours': round(hours_after_short, 2),
-            'is_predetermined': False,
+            "dataset": f"{lang}_short_pruning",
+            "lang": lang,
+            "orig_count": sum(
+                    len(data["all_records"])
+                    for _, data in datasets
+                ),
+            "new_count": sum(
+                    len(records)
+                    for records in pruned_datasets.values()
+                ),
+            "orig_hours": round(current_hours, 2),
+            "new_hours": round(hours_after_short, 2),
+            "is_predetermined": False,
         })
 
-        # Balanced already
-        if hours_after_short <= target_hours * 1.01:
+        # -----------------------------------------------------
+        # Done after short pruning
+        # -----------------------------------------------------
+        if hours_after_short <= target_hours * 1.01: # tolerance
             for key, records in pruned_datasets.items():
                 result[key] = records
+
             continue
 
+        # -----------------------------------------------------
         # Stage 2: Standard balancing
-        remaining_to_reduce = (
-            hours_after_short -
-            target_hours
-        )
-
+        # -----------------------------------------------------
+        remaining_to_reduce = (hours_after_short - target_hours)
         reduced_datasets = {}
 
         for key, data in datasets:
@@ -611,7 +628,8 @@ def balance_lang_data(lang_datasets: dict, original_dir: Path, balanced_dir: Pat
             hours = calculate_hours(records)
 
             if remaining_to_reduce <= 0:
-                reduced_datasets[key] = records
+                reduced_datasets[key] = (records)
+
                 continue
 
             reduce_from_dataset = min(
@@ -619,50 +637,49 @@ def balance_lang_data(lang_datasets: dict, original_dir: Path, balanced_dir: Pat
                 remaining_to_reduce
             )
 
-            keep_hours = (
-                hours - reduce_from_dataset
-            )
+            keep_hours = (hours - reduce_from_dataset)
 
             if hours > 0:
-                keep_fraction = (
-                    keep_hours / hours
-                )
+                keep_fraction = (keep_hours / hours)
 
                 target_count = max(
-                    1, int(len(records) * keep_fraction)
+                    1,
+                    int(
+                        len(records)
+                        * keep_fraction
+                    )
                 )
 
                 sorted_records = sorted(
                     records,
-                    key=lambda r: r.get('duration', 0),
+                    key=lambda r: r.get("duration", 0),
                     reverse=True
                 )
 
-                kept_records = (
-                    sorted_records[:target_count]
-                )
+                kept_records = (sorted_records[:target_count])
 
             else:
                 kept_records = records
 
-            reduced_datasets[key] = kept_records
-            remaining_to_reduce -= (
-                hours - calculate_hours(kept_records)
-            )
+            reduced_datasets[key] = (kept_records)
+            remaining_to_reduce -= hours - calculate_hours(kept_records)
 
             reduction_log.append({
-                'dataset': key,
-                'lang': lang,
-                'orig_count': len(records),
-                'new_count': len(kept_records),
-                'orig_hours': round(hours, 2),
-                'new_hours': round(calculate_hours(kept_records),  2),
-                'is_predetermined': data['is_predetermined'],
+                "dataset": key,
+                "lang": lang,
+                "orig_count": len(records),
+                "new_count": len(kept_records),
+                "orig_hours": round(hours, 2),
+                "new_hours": round(calculate_hours(kept_records), 2),
+                "is_predetermined": data["is_predetermined"],
             })
 
         for key, records in reduced_datasets.items():
             result[key] = records
 
+    # ---------------------------------------------------------
+    # Reduction log
+    # ---------------------------------------------------------
     if reduction_log:
         print("\n" + "=" * 70)
         print("REDUCTION LOG")
@@ -671,7 +688,7 @@ def balance_lang_data(lang_datasets: dict, original_dir: Path, balanced_dir: Pat
         for log in reduction_log:
             ptype = (
                 "PREDETERMINED"
-                if log['is_predetermined']
+                if log["is_predetermined"]
                 else "NON-PREDETERMINED"
             )
 
@@ -684,19 +701,26 @@ def balance_lang_data(lang_datasets: dict, original_dir: Path, balanced_dir: Pat
                 f"{log['new_hours']:7.2f}h"
             )
 
+    # ---------------------------------------------------------
+    # Final stats
+    # ---------------------------------------------------------
     lang_hours_post = defaultdict(float)
 
     for key, records in result.items():
-        lang = key.split('_')[0]
-        lang_hours_post[lang] += (calculate_hours(records))
+
+        lang = key.split("_")[0]
+
+        lang_hours_post[lang] += (
+            calculate_hours(records)
+        )
 
     print("\n" + "=" * 70)
     print("POST-BALANCE: Total hours per language")
     print("=" * 70)
 
     for lang in sorted(
-            lang_hours_post.keys()):
-
+        lang_hours_post.keys()
+    ):
         print(
             f"{lang.upper()}: "
             f"{lang_hours_post[lang]:.1f}h"
@@ -707,18 +731,18 @@ def balance_lang_data(lang_datasets: dict, original_dir: Path, balanced_dir: Pat
 # ─── DATASET WRAPPER FUNCTIONS ──────────────────────────────────────────────
 def process_id_cv(mode='full', manifest_dir=None):
     """Indonesian: Mozilla Common Voice - PREDETERMINED FULL
-    
+
     Args:
         mode: 'audio' (process only), 'manifest' (create manifest only), 'full' (both)
         manifest_dir: Directory to save manifests. If None, uses BASE_OUT/manifests
     """
     dataset_key = 'id_cv'
     print(f"\n[{dataset_key}] Mozilla Common Voice ID v24.0")
-    
+
     cv_id_root  = os.path.join(BASE_DATASET, "id", "mozilla", "scripted-id",
                                 "cv-corpus-24.0-2025-12-05", "id")
     cv_id_clips = os.path.join(cv_id_root, "clips")
-    
+
     if mode in ['audio', 'full']:
         split_records = {}
         for split in ['train', 'dev', 'test']:
@@ -732,9 +756,9 @@ def process_id_cv(mode='full', manifest_dir=None):
             else:
                 print(f"  {tsv} not found - split '{split}' empty")
                 split_records[split] = []
-        
+
         all_recs = [r for recs in split_records.values() for r in recs]
-        
+
         # Save records for stage 2
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
@@ -743,10 +767,10 @@ def process_id_cv(mode='full', manifest_dir=None):
                 'all_records': all_recs,
                 'is_predetermined': True
             }, f, ensure_ascii=False, indent=2)
-        
+
         if mode == 'audio':
             return None
-    
+
     if mode in ['manifest', 'full']:
         # Load or use cached records
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
@@ -754,25 +778,25 @@ def process_id_cv(mode='full', manifest_dir=None):
             data = json.load(f)
             split_records = data['split_records']
             all_recs = data['all_records']
-        
-        if manifest_dir is None:
-            manifest_dir = os.path.join(BASE_OUT, "manifests")
-        
-        save_manifest(dataset_key, 'id', 'predetermined_full',
-                      'Mozilla CV ID v24.0 - TSV train/dev/test preserved',
-                      split_records, manifest_dir=manifest_dir)
-        
+
+        # if manifest_dir is None:
+        #     manifest_dir = os.path.join(BASE_OUT, "manifests")
+
+        # save_manifest(dataset_key, 'id', 'predetermined_full',
+        #               'Mozilla CV ID v24.0 - TSV train/dev/test preserved',
+        #               split_records, manifest_dir=manifest_dir)
+
         return {
             'split_records': split_records,
             'all_records': all_recs,
             'is_predetermined': True,
         }
-    
+
     return None
 
 def process_id_fleurs(mode='full', manifest_dir=None):
     """Indonesian: FLEURS - PREDETERMINED FULL
-    
+
     Args:
         mode: 'audio', 'manifest', or 'full'
         manifest_dir: Directory to save manifests
@@ -797,35 +821,35 @@ def process_id_fleurs(mode='full', manifest_dir=None):
                 split_records[split] = []
 
         all_recs = [r for recs in split_records.values() for r in recs]
-        
+
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
             json.dump({'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}, f, ensure_ascii=False, indent=2)
-        
+
         if mode == 'audio':
             return None
-    
+
     if mode in ['manifest', 'full']:
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             split_records = data['split_records']
             all_recs = data['all_records']
-        
-        if manifest_dir is None:
-            manifest_dir = os.path.join(BASE_OUT, "manifests")
-        
-        save_manifest(dataset_key, 'id', 'predetermined_full',
-                      'FLEURS ID - audio/train|dev|test dirs + TSV preserved',
-                      split_records, manifest_dir=manifest_dir)
-        
+
+        # if manifest_dir is None:
+        #     manifest_dir = os.path.join(BASE_OUT, "manifests")
+
+        # save_manifest(dataset_key, 'id', 'predetermined_full',
+        #               'FLEURS ID - audio/train|dev|test dirs + TSV preserved',
+        #               split_records, manifest_dir=manifest_dir)
+
         return {'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}
-    
+
     return None
 
 def process_id_librivox(mode='full', manifest_dir=None):
     """Indonesian: Librivox - PREDETERMINED PARTIAL
-    
+
     Args:
         mode: 'audio', 'manifest', or 'full'
         manifest_dir: Directory to save manifests
@@ -848,35 +872,35 @@ def process_id_librivox(mode='full', manifest_dir=None):
 
         split_records = split_partial_carve_dev(librivox_train, librivox_test)
         all_recs = [r for recs in split_records.values() for r in recs]
-        
+
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
             json.dump({'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}, f, ensure_ascii=False, indent=2)
-        
+
         if mode == 'audio':
             return None
-    
+
     if mode in ['manifest', 'full']:
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             split_records = data['split_records']
             all_recs = data['all_records']
-        
-        if manifest_dir is None:
-            manifest_dir = os.path.join(BASE_OUT, "manifests")
-        
-        save_manifest(dataset_key, 'id', 'predetermined_partial_carved',
-                      'Librivox ID - metadata_train/test CSV; dev carved from train (78:22) for 7:2:1',
-                      split_records, manifest_dir=manifest_dir)
-        
+
+        # if manifest_dir is None:
+        #     manifest_dir = os.path.join(BASE_OUT, "manifests")
+
+        # save_manifest(dataset_key, 'id', 'predetermined_partial_carved',
+        #               'Librivox ID - metadata_train/test CSV; dev carved from train (78:22) for 7:2:1',
+        #               split_records, manifest_dir=manifest_dir)
+
         return {'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}
-    
+
     return None
 
 def process_id_titml(mode='full', manifest_dir=None):
     """Indonesian: TITML-IDN - 8:1:1
-    
+
     Args:
         mode: 'audio', 'manifest', or 'full'
         manifest_dir: Directory to save manifests
@@ -884,42 +908,42 @@ def process_id_titml(mode='full', manifest_dir=None):
     dataset_key = 'id_titml'
     print(f"\n[{dataset_key}] TITML-IDN")
     titml_dir = os.path.join(BASE_DATASET, "id", "TITML-IDN")
-    
+
     if mode in ['audio', 'full']:
         titml_map = load_titml_idn(titml_dir)
         titml_all = process_dataset(titml_dir,
                                      os.path.join(BASE_OUT, "id", "titml"),
                                      "id", "titml", titml_map)
-        
+
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
             json.dump({'all_records': titml_all, 'is_predetermined': False}, f, ensure_ascii=False, indent=2)
-        
+
         if mode == 'audio':
             return None
-    
+
     if mode in ['manifest', 'full']:
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             titml_all = data['all_records']
-        
+
         split_records = split_data(titml_all)
-        
-        if manifest_dir is None:
-            manifest_dir = os.path.join(BASE_OUT, "manifests")
-        
-        save_manifest(dataset_key, 'id', '8_1_1',
-                      'TITML-IDN - speaker dirs only; speaker-independent 8:1:1 applied',
-                      split_records, manifest_dir=manifest_dir)
-        
+
+        # if manifest_dir is None:
+        #     manifest_dir = os.path.join(BASE_OUT, "manifests")
+
+        # save_manifest(dataset_key, 'id', '8_1_1',
+        #               'TITML-IDN - speaker dirs only; speaker-independent 8:1:1 applied',
+        #               split_records, manifest_dir=manifest_dir)
+
         return {'split_records': split_records, 'all_records': titml_all, 'is_predetermined': False}
-    
+
     return None
 
 def process_id_indocsc(mode='full', manifest_dir=None):
     """Indonesian: SEACrowd IndoCSC - 8:1:1
-    
+
     Args:
         mode: 'audio', 'manifest', or 'full'
         manifest_dir: Directory to save manifests
@@ -930,7 +954,7 @@ def process_id_indocsc(mode='full', manifest_dir=None):
                                 "Indonesian_Conversational_Speech_Corpus", "WAV")
     indocsc_txt = os.path.join(BASE_DATASET, "id", "SEACrowd",
                                 "Indonesian_Conversational_Speech_Corpus", "TXT")
-    
+
     if mode in ['audio', 'full']:
         segment_map = load_seacrowd_indocsc(indocsc_wav, indocsc_txt)
 
@@ -943,32 +967,32 @@ def process_id_indocsc(mode='full', manifest_dir=None):
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
             json.dump({'all_records': indocsc_all, 'is_predetermined': False}, f, ensure_ascii=False, indent=2)
-        
+
         if mode == 'audio':
             return None
-    
+
     if mode in ['manifest', 'full']:
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             indocsc_all = data['all_records']
-        
+
         split_records = split_data(indocsc_all)
 
-        if manifest_dir is None:
-            manifest_dir = os.path.join(BASE_OUT, "manifests")
+        # if manifest_dir is None:
+        #     manifest_dir = os.path.join(BASE_OUT, "manifests")
 
-        save_manifest(dataset_key, 'id', '8_1_1',
-                      'SEACrowd IndoCSC - no predetermined splits; 8:1:1 applied',
-                      split_records, manifest_dir=manifest_dir)
-        
+        # save_manifest(dataset_key, 'id', '8_1_1',
+        #               'SEACrowd IndoCSC - no predetermined splits; 8:1:1 applied',
+        #               split_records, manifest_dir=manifest_dir)
+
         return {'split_records': split_records, 'all_records': indocsc_all, 'is_predetermined': False}
-    
+
     return None
 
 def process_id_sindodsc(mode='full', manifest_dir=None):
     """Indonesian: SEACrowd SIndoDuSC - 8:1:1
-    
+
     Args:
         mode: 'audio', 'manifest', or 'full'
         manifest_dir: Directory to save manifests
@@ -979,42 +1003,42 @@ def process_id_sindodsc(mode='full', manifest_dir=None):
                                 "Indonesian_Scripted_Speech_Corpus_Daily_Use_Sentence")
     sindodsc_wav = os.path.join(BASE_DATASET, "id", "SEACrowd",
                                  "Indonesian_Scripted_Speech_Corpus_Daily_Use_Sentence", "WAV")
-    
+
     if mode in ['audio', 'full']:
         sindodsc_all = process_dataset(sindodsc_wav,
                                         os.path.join(BASE_OUT, "id", "sindodsc"),
                                         "id", "sindodsc",
                                         load_seacrowd_sindodsc(sindodsc_wav, sindocsc_root))
-        
+
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
             json.dump({'all_records': sindodsc_all, 'is_predetermined': False}, f, ensure_ascii=False, indent=2)
-        
+
         if mode == 'audio':
             return None
-    
+
     if mode in ['manifest', 'full']:
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             sindodsc_all = data['all_records']
-        
+
         split_records = split_data(sindodsc_all)
-        
-        if manifest_dir is None:
-            manifest_dir = os.path.join(BASE_OUT, "manifests")
-        
-        save_manifest(dataset_key, 'id', '8_1_1',
-                      'SEACrowd SIndoDuSC - WAV only; 8:1:1 applied',
-                      split_records, manifest_dir=manifest_dir)
-        
+
+        # if manifest_dir is None:
+        #     manifest_dir = os.path.join(BASE_OUT, "manifests")
+
+        # save_manifest(dataset_key, 'id', '8_1_1',
+        #               'SEACrowd SIndoDuSC - WAV only; 8:1:1 applied',
+        #               split_records, manifest_dir=manifest_dir)
+
         return {'split_records': split_records, 'all_records': sindodsc_all, 'is_predetermined': False}
-    
+
     return None
 
 def process_ar_cv(mode='full', manifest_dir=None):
     """Arabic: Mozilla Common Voice - PREDETERMINED FULL
-    
+
     Args:
         mode: 'audio', 'manifest', or 'full'
         manifest_dir: Directory to save manifests
@@ -1040,35 +1064,35 @@ def process_ar_cv(mode='full', manifest_dir=None):
                 split_records[split] = []
 
         all_recs = [r for recs in split_records.values() for r in recs]
-        
+
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
             json.dump({'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}, f, ensure_ascii=False, indent=2)
-        
+
         if mode == 'audio':
             return None
-    
+
     if mode in ['manifest', 'full']:
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             split_records = data['split_records']
             all_recs = data['all_records']
-        
-        if manifest_dir is None:
-            manifest_dir = os.path.join(BASE_OUT, "manifests")
-        
-        save_manifest(dataset_key, 'ar', 'predetermined_full',
-                      'Mozilla CV AR v24.0 - TSV train/dev/test preserved',
-                      split_records, manifest_dir=manifest_dir)
-        
+
+        # if manifest_dir is None:
+        #     manifest_dir = os.path.join(BASE_OUT, "manifests")
+
+        # save_manifest(dataset_key, 'ar', 'predetermined_full',
+        #               'Mozilla CV AR v24.0 - TSV train/dev/test preserved',
+        #               split_records, manifest_dir=manifest_dir)
+
         return {'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}
-    
+
     return None
 
 def process_ar_fleurs(mode='full', manifest_dir=None):
     """Arabic: FLEURS - PREDETERMINED FULL
-    
+
     Args:
         mode: 'audio', 'manifest', or 'full'
         manifest_dir: Directory to save manifests
@@ -1093,35 +1117,35 @@ def process_ar_fleurs(mode='full', manifest_dir=None):
                 split_records[split] = []
 
         all_recs = [r for recs in split_records.values() for r in recs]
-        
+
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
             json.dump({'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}, f, ensure_ascii=False, indent=2)
-        
+
         if mode == 'audio':
             return None
-    
+
     if mode in ['manifest', 'full']:
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             split_records = data['split_records']
             all_recs = data['all_records']
-        
-        if manifest_dir is None:
-            manifest_dir = os.path.join(BASE_OUT, "manifests")
-        
-        save_manifest(dataset_key, 'ar', 'predetermined_full',
-                      'FLEURS AR - audio/train|dev|test dirs preserved',
-                      split_records, manifest_dir=manifest_dir)
-        
+
+        # if manifest_dir is None:
+        #     manifest_dir = os.path.join(BASE_OUT, "manifests")
+
+        # save_manifest(dataset_key, 'ar', 'predetermined_full',
+        #               'FLEURS AR - audio/train|dev|test dirs preserved',
+        #               split_records, manifest_dir=manifest_dir)
+
         return {'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}
-    
+
     return None
 
 def process_ar_clartts(mode='full', manifest_dir=None):
     """Arabic: ClArTTS - PREDETERMINED PARTIAL
-    
+
     Args:
         mode: 'audio', 'manifest', or 'full'
         manifest_dir: Directory to save manifests
@@ -1149,35 +1173,35 @@ def process_ar_clartts(mode='full', manifest_dir=None):
 
         split_records = split_partial_carve_dev(clartts_train_all, clartts_test_all)
         all_recs = [r for recs in split_records.values() for r in recs]
-        
+
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
             json.dump({'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}, f, ensure_ascii=False, indent=2)
-        
+
         if mode == 'audio':
             return None
-    
+
     if mode in ['manifest', 'full']:
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             split_records = data['split_records']
             all_recs = data['all_records']
-        
-        if manifest_dir is None:
-            manifest_dir = os.path.join(BASE_OUT, "manifests")
-        
-        save_manifest(dataset_key, 'ar', 'predetermined_partial_carved',
-                      'ClArTTS - parquet files; dev carved from train for 7:2:1',
-                      split_records, manifest_dir=manifest_dir)
-        
+
+        # if manifest_dir is None:
+        #     manifest_dir = os.path.join(BASE_OUT, "manifests")
+
+        # save_manifest(dataset_key, 'ar', 'predetermined_partial_carved',
+        #               'ClArTTS - parquet files; dev carved from train for 7:2:1',
+        #               split_records, manifest_dir=manifest_dir)
+
         return {'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}
-    
+
     return None
 
 def process_en_librispeech(mode='full', manifest_dir=None):
     """English: LibriSpeech - 8:1:1
-    
+
     Args:
         mode: 'audio', 'manifest', or 'full'
         manifest_dir: Directory to save manifests
@@ -1192,36 +1216,36 @@ def process_en_librispeech(mode='full', manifest_dir=None):
         libri_all = process_dataset(libri_extracted,
                                      os.path.join(BASE_OUT, "en", "librispeech"),
                                      "en", "librispeech", libri_map)
-        
+
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
             json.dump({'all_records': libri_all, 'is_predetermined': False}, f, ensure_ascii=False, indent=2)
-        
+
         if mode == 'audio':
             return None
-    
+
     if mode in ['manifest', 'full']:
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             libri_all = data['all_records']
-        
+
         split_records = split_data(libri_all)
-        
-        if manifest_dir is None:
-            manifest_dir = os.path.join(BASE_OUT, "manifests")
-        
-        save_manifest(dataset_key, 'en', '8_1_1',
-                      'LibriSpeech clean-100 HF parquet - 8:1:1 applied',
-                      split_records, manifest_dir=manifest_dir)
-        
+
+        # if manifest_dir is None:
+        #     manifest_dir = os.path.join(BASE_OUT, "manifests")
+
+        # save_manifest(dataset_key, 'en', '8_1_1',
+        #               'LibriSpeech clean-100 HF parquet - 8:1:1 applied',
+        #               split_records, manifest_dir=manifest_dir)
+
         return {'split_records': split_records, 'all_records': libri_all, 'is_predetermined': False}
-    
+
     return None
 
 def process_en_fleurs(mode='full', manifest_dir=None):
     """English: FLEURS - PREDETERMINED FULL
-    
+
     Args:
         mode: 'audio', 'manifest', or 'full'
         manifest_dir: Directory to save manifests
@@ -1246,42 +1270,42 @@ def process_en_fleurs(mode='full', manifest_dir=None):
                 split_records[split] = []
 
         all_recs = [r for recs in split_records.values() for r in recs]
-        
+
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
             json.dump({'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}, f, ensure_ascii=False, indent=2)
-        
+
         if mode == 'audio':
             return None
-    
+
     if mode in ['manifest', 'full']:
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             split_records = data['split_records']
             all_recs = data['all_records']
-        
-        if manifest_dir is None:
-            manifest_dir = os.path.join(BASE_OUT, "manifests")
-        
-        save_manifest(dataset_key, 'en', 'predetermined_full',
-                      'FLEURS EN - audio/train|dev|test dirs preserved',
-                      split_records, manifest_dir=manifest_dir)
-        
+
+        # if manifest_dir is None:
+        #     manifest_dir = os.path.join(BASE_OUT, "manifests")
+
+        # save_manifest(dataset_key, 'en', 'predetermined_full',
+        #               'FLEURS EN - audio/train|dev|test dirs preserved',
+        #               split_records, manifest_dir=manifest_dir)
+
         return {'split_records': split_records, 'all_records': all_recs, 'is_predetermined': True}
-    
+
     return None
 
 def process_en_cv_spon(mode='full', manifest_dir=None):
     """English: Mozilla CV Spontaneous - Use 'split' column from TSV
-    
+
     Args:
         mode: 'audio', 'manifest', or 'full'
         manifest_dir: Directory to save manifests
     """
     dataset_key = 'en_cv_spon'
     print(f"\n[{dataset_key}] Mozilla CV EN Spontaneous")
-    
+
     cv_en_dir = os.path.join(
         BASE_DATASET, "en", "mozilla",
         "sps-corpus-1.0-2025-11-25-en"
@@ -1311,39 +1335,39 @@ def process_en_cv_spon(mode='full', manifest_dir=None):
             os.path.join(BASE_OUT, "en", "cv_spon"),
             "en", "cv_spon", cv_en_map
         )
-        
+
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
             json.dump({'all_records': cv_en_all, 'split_membership': split_membership, 'is_predetermined': True}, f, ensure_ascii=False, indent=2)
-        
+
         if mode == 'audio':
             return None
-    
+
     if mode in ['manifest', 'full']:
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             cv_en_all = data['all_records']
             split_membership = data['split_membership']
-        
+
         split_records = assign_by_membership(cv_en_all, split_membership)
-        
-        if manifest_dir is None:
-            manifest_dir = os.path.join(BASE_OUT, "manifests")
-        
-        save_manifest(
-            dataset_key, 'en', 'predetermined_full',
-            'Mozilla CV EN Spontaneous v1.0 - splits from TSV column',
-            split_records, manifest_dir=manifest_dir
-        )
-        
+
+        # if manifest_dir is None:
+        #     manifest_dir = os.path.join(BASE_OUT, "manifests")
+
+        # save_manifest(
+        #     dataset_key, 'en', 'predetermined_full',
+        #     'Mozilla CV EN Spontaneous v1.0 - splits from TSV column',
+        #     split_records, manifest_dir=manifest_dir
+        # )
+
         return {'split_records': split_records, 'all_records': cv_en_all, 'is_predetermined': True}
-    
+
     return None
 
 def process_cs_escwa(mode='full', manifest_dir=None):
     """Code-Switching (AR-EN): QCRI ESCWA - 8:1:1
-    
+
     Args:
         mode: 'audio', 'manifest', or 'full'
         manifest_dir: Directory to save manifests
@@ -1351,7 +1375,7 @@ def process_cs_escwa(mode='full', manifest_dir=None):
     dataset_key = 'cs_escwa'
     print(f"\n[{dataset_key}] QCRI ESCWA")
     escwa_dir = os.path.join(BASE_DATASET, "CS", "ar-en", "escwa", "cs.released")
-    
+
     if mode in ['audio', 'full']:
         escwa_text_map = load_escwa(escwa_dir)
         escwa_seg_map  = load_escwa_segments(escwa_dir)
@@ -1365,36 +1389,36 @@ def process_cs_escwa(mode='full', manifest_dir=None):
             # if utt_id in escwa_seg_map:
                 # rec_id, _, _ = escwa_seg_map[utt_id]
                 # rec['speaker'] = f"spk_escwa_{rec_id}"
-        
+
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
             json.dump({'all_records': escwa_all, 'is_predetermined': False}, f, ensure_ascii=False, indent=2)
-        
+
         if mode == 'audio':
             return None
-    
+
     if mode in ['manifest', 'full']:
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             escwa_all = data['all_records']
-        
+
         split_records = split_data(escwa_all)
-        
-        if manifest_dir is None:
-            manifest_dir = os.path.join(BASE_OUT, "manifests")
-        
-        save_manifest(dataset_key, 'cs', '8_1_1',
-                      'QCRI ESCWA - Kaldi segments+text; 8:1:1 applied',
-                      split_records, manifest_dir=manifest_dir)
-        
+
+        # if manifest_dir is None:
+        #     manifest_dir = os.path.join(BASE_OUT, "manifests")
+
+        # save_manifest(dataset_key, 'cs', '8_1_1',
+        #               'QCRI ESCWA - Kaldi segments+text; 8:1:1 applied',
+        #               split_records, manifest_dir=manifest_dir)
+
         return {'split_records': split_records, 'all_records': escwa_all, 'is_predetermined': False}
-    
+
     return None
 
 def process_cs_hari(mode='full', manifest_dir=None):
     """Code-Switching (ID-EN): Hari Minggoean - 8:1:1
-    
+
     Args:
         mode: 'audio', 'manifest', or 'full'
         manifest_dir: Directory to save manifests
@@ -1402,7 +1426,7 @@ def process_cs_hari(mode='full', manifest_dir=None):
     dataset_key = 'cs_hari'
     print(f"\n[{dataset_key}] Hari Minggoean")
     hari_dir     = os.path.join(BASE_DATASET, "CS", "id-en", "Hari Minggoean", "2")
-    
+
     if mode in ['audio', 'full']:
         hari_seg_map = load_hari_minggoean(hari_dir)
 
@@ -1412,37 +1436,37 @@ def process_cs_hari(mode='full', manifest_dir=None):
             "cs",
             "hari",
             os.path.join(BASE_OUT, "cs", "hari_minggoean")
-        )        
+        )
 
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
             json.dump({'all_records': hari_all, 'is_predetermined': False}, f, ensure_ascii=False, indent=2)
-        
+
         if mode == 'audio':
             return None
-    
+
     if mode in ['manifest', 'full']:
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             hari_all = data['all_records']
-        
+
         split_records = split_data(hari_all)
-        
-        if manifest_dir is None:
-            manifest_dir = os.path.join(BASE_OUT, "manifests")
-        
-        save_manifest(dataset_key, 'cs', '8_1_1',
-                      'Hari Minggoean - TSV segments; 8:1:1 applied',
-                      split_records, manifest_dir=manifest_dir)
-        
+
+        # if manifest_dir is None:
+        #     manifest_dir = os.path.join(BASE_OUT, "manifests")
+
+        # save_manifest(dataset_key, 'cs', '8_1_1',
+        #               'Hari Minggoean - TSV segments; 8:1:1 applied',
+        #               split_records, manifest_dir=manifest_dir)
+
         return {'split_records': split_records, 'all_records': hari_all, 'is_predetermined': False}
-    
+
     return None
 
 def process_cs_homostoria(mode='full', manifest_dir=None):
     """Code-Switching (ID-EN): Homostoria - 8:1:1
-    
+
     Args:
         mode: 'audio', 'manifest', or 'full'
         manifest_dir: Directory to save manifests
@@ -1450,7 +1474,7 @@ def process_cs_homostoria(mode='full', manifest_dir=None):
     dataset_key = 'cs_homostoria'
     print(f"\n[{dataset_key}] Homostoria")
     homo_dir     = os.path.join(BASE_DATASET, "CS", "id-en", "homostoria", "homostoria")
-    
+
     if mode in ['audio', 'full']:
         homo_seg_map = load_homostoria(homo_dir)
 
@@ -1465,25 +1489,25 @@ def process_cs_homostoria(mode='full', manifest_dir=None):
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'w', encoding='utf-8') as f:
             json.dump({'all_records': homo_all, 'is_predetermined': False}, f, ensure_ascii=False, indent=2)
-        
+
         if mode == 'audio':
             return None
-    
+
     if mode in ['manifest', 'full']:
         records_file = os.path.join(RECORDS_DIR, f'{dataset_key}.json')
         with open(records_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
             homo_all = data['all_records']
-        
+
         split_records = split_data(homo_all)
-        
-        if manifest_dir is None:
-            manifest_dir = os.path.join(BASE_OUT, "manifests")
-        
-        save_manifest(dataset_key, 'cs', '8_1_1',
-                      'Homostoria - TSV segments; 8:1:1 applied',
-                      split_records, manifest_dir=manifest_dir)
-        
+
+        # if manifest_dir is None:
+        #     manifest_dir = os.path.join(BASE_OUT, "manifests")
+
+        # save_manifest(dataset_key, 'cs', '8_1_1',
+        #               'Homostoria - TSV segments; 8:1:1 applied',
+        #               split_records, manifest_dir=manifest_dir)
+
         return {'split_records': split_records, 'all_records': homo_all, 'is_predetermined': False}
-    
+
     return None

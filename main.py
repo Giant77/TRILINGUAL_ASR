@@ -30,17 +30,17 @@ def main():
       Stage 3: Transcript Text Preprocessing - Process transcripts by language
       Stage 4: Balancing/Re-splitting - Balance data, save to manifests/balanced/
     """
-    
+
     args = parse_args()
     start_stage = args.start_stage
     end_stage = args.end_stage
     start_time = time.time()
-    
+
     print("\n" + "="*70)
     print("PREPROCESSING PIPELINE START")
     print(f"Stages: {start_stage} -> {end_stage}")
     print("="*70)
-    
+
     # Registry of dataset processing functions (in order)
     processors = [
         # Indonesian
@@ -82,10 +82,10 @@ def main():
         print("\n" + "="*70)
         print("STAGE 1: Audio Preprocessing")
         print("="*70)
-        
+
         for lang, processor_func in processors:
             processor_func(mode='audio')
-    
+
     # ─────────────────────────────────────────────────────────────
     # STAGE 2: Manifest Writes/Logs
     # ─────────────────────────────────────────────────────────────
@@ -93,100 +93,191 @@ def main():
         print("\n" + "="*70)
         print("STAGE 2: Manifest Writes/Logs")
         print("="*70)
-        
+
         for lang, processor_func in processors:
             result = processor_func(mode='manifest', manifest_dir=original_dir)
             dataset_key = processor_func.__name__.replace('process_', '')
             lang_datasets[dataset_key] = result
-        
+
         # Save short-segment manifests
         print("\nSaving short-segment manifests...")
         save_short_segment_manifests(original_dir)
-    
+
     # ─────────────────────────────────────────────────────────────
     # STAGE 3: Transcript Text Preprocessing
     # ─────────────────────────────────────────────────────────────
     if start_stage <= 3 <= end_stage:
-        print("\n" + "="*70)
+        print("\n" + "=" * 70)
         print("STAGE 3: Transcript Text Preprocessing")
-        print("="*70)
-        
-        for dataset_key in sorted(lang_datasets.keys()):
-            manifest_path = os.path.join(original_dir, f"{dataset_key}_manifest.json")
-            if not os.path.exists(manifest_path):
-                print(f"  Skipping {dataset_key}: manifest not found at {manifest_path}")
-                continue
-            
-            with open(manifest_path, 'r', encoding='utf-8') as f:
-                manifest = json.load(f)
-            
-            lang = dataset_key.split('_')[0]
-            print(f"  Processing transcripts for {dataset_key} (lang={lang})")
-            
-            for split in ['train', 'dev', 'test']:
-                if split in manifest and manifest[split]:
-                    manifest[split] = preprocess_transcripts(
-                        lang,
-                        manifest[split],
-                        dataset_key
-                    )
-            # keep in-memory records synchronized
-            lang_datasets[dataset_key]["all_records"] = (
-                manifest.get("train", [])
-                + manifest.get("dev", [])
-                + manifest.get("test", [])
+        print("=" * 70)
+
+        for lang, processor_func in processors:
+
+            dataset_key = processor_func.__name__.replace(
+                "process_",
+                ""
             )
 
-            # Save back to manifest
-            with open(manifest_path, 'w', encoding='utf-8') as f:
-                json.dump(manifest, f, ensure_ascii=False, indent=2)
+            records_file = os.path.join(
+                RECORDS_DIR,
+                f"{dataset_key}.json"
+            )
+
+            if not os.path.exists(records_file):
+                print(
+                    f"  Skipping {dataset_key}: "
+                    f"records not found"
+                )
+                continue
+
+            with open(
+                records_file,
+                "r",
+                encoding="utf-8"
+            ) as f:
+                data = json.load(f)
+
+            records = data.get("all_records", [])
+
+            lang = dataset_key.split("_")[0]
+
+            print(
+                f"  Processing transcripts for "
+                f"{dataset_key} (lang={lang})"
+            )
+
+            preprocess_transcripts(
+                lang,
+                records,
+                dataset_key
+            )
+
+            before = len(records)
+
+            records = [
+                r for r in records
+                if r.get("text", "").strip()
+            ]
+
+            removed = before - len(records)
+
+            if removed:
+                print(
+                    f"    Removed {removed} empty transcripts"
+                )
+
+            data["all_records"] = records
+
+            if data.get("is_predetermined", False):
+
+                if dataset_key == "en_cv_spon":
+                    split_records = assign_by_membership(
+                        records,
+                        data["split_membership"]
+                    )
+                else:
+                    split_records = split_data(records)
+
+                split_source = "predetermined_full"
+
+            else:
+                split_records = split_data(records)
+                split_source = "8_1_1"
+
+            save_manifest(
+                dataset_key,
+                lang,
+                split_source,
+                "Transcript preprocessing applied",
+                split_records,
+                manifest_dir=original_dir
+            )
 
     # ─────────────────────────────────────────────────────────────
     # STAGE 4: Balancing/Re-splitting
     # ─────────────────────────────────────────────────────────────
     if start_stage <= 4 <= end_stage:
-        print("\n" + "="*70)
+        print("\n" + "=" * 70)
         print("STAGE 4: Balancing/Re-splitting")
-        print("="*70)
-        
+        print("=" * 70)
+
         balanced_records = balance_lang_data(
-            lang_datasets=lang_datasets,
             original_dir=original_dir,
             balanced_dir=balanced_dir,
             short_duration_threshold=3
         )
-        
-        for dataset_key, original_result in lang_datasets.items():
-            lang = dataset_key.split('_')[0]
-            is_predetermined = original_result.get('is_predetermined', False)
-            split_source = 'predetermined_full' if is_predetermined else '8_1_1'
-            
-            # Get balanced records (may be fewer after balancing)
-            balanced_recs = balanced_records.get(dataset_key, original_result.get('all_records', []))
-            
-            # Re-split balanced data
+
+        for dataset_key, balanced_recs in balanced_records.items():
+
+            manifest_path = os.path.join(
+                original_dir,
+                f"{dataset_key}_manifest.json"
+            )
+
+            if not os.path.exists(manifest_path):
+                continue
+
+            with open(
+                manifest_path,
+                "r",
+                encoding="utf-8"
+            ) as f:
+                manifest = json.load(f)
+
+            lang = manifest["lang"]
+            split_source = manifest["split_source"]
+
+            original_records = (
+                manifest.get("train", [])
+                + manifest.get("dev", [])
+                + manifest.get("test", [])
+            )
+
             split_records = split_data(balanced_recs)
-            
-            # Generate dynamic split_note with detailed statistics
-            orig_count = len(original_result.get('all_records', []))
+
+            orig_count = len(original_records)
             new_count = len(balanced_recs)
-            orig_hours = calculate_hours(original_result.get('all_records', []))
+
+            orig_hours = calculate_hours(original_records)
             new_hours = calculate_hours(balanced_recs)
-            train_h = round(calculate_hours(split_records.get('train', [])), 2)
-            dev_h = round(calculate_hours(split_records.get('dev', [])), 2)
-            test_h = round(calculate_hours(split_records.get('test', [])), 2)
-            
-            split_note = f"Balanced: {orig_count}→{new_count} utts, {orig_hours:.1f}→{new_hours:.1f}h, train={train_h}h dev={dev_h}h test={test_h}h"
-            
-            save_manifest(dataset_key, lang, split_source, split_note, split_records, manifest_dir=balanced_dir)
-    
+
+            train_h = round(
+                calculate_hours(split_records["train"]),
+                2
+            )
+            dev_h = round(
+                calculate_hours(split_records["dev"]),
+                2
+            )
+            test_h = round(
+                calculate_hours(split_records["test"]),
+                2
+            )
+
+            split_note = (
+                f"Balanced: "
+                f"{orig_count}→{new_count} utts, "
+                f"{orig_hours:.1f}→{new_hours:.1f}h, "
+                f"train={train_h}h "
+                f"dev={dev_h}h "
+                f"test={test_h}h"
+            )
+
+            save_manifest(
+                dataset_key,
+                lang,
+                split_source,
+                split_note,
+                split_records,
+                manifest_dir=balanced_dir
+            )
     # ─────────────────────────────────────────────────────────────
     # Final Summary
     # ─────────────────────────────────────────────────────────────
     end_time = time.time()
     runtime_sec = end_time - start_time
     runtime_min = runtime_sec / 60.0
-    
+
     print("\n" + "="*70)
     print("PREPROCESSING PIPELINE COMPLETE")
     print("="*70)

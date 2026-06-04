@@ -65,7 +65,7 @@ def load_fleurs(tsv_path: str) -> dict:
         "num_samples",
         "gender",
     ]
-    
+
     result = {}
     with open(tsv_path, encoding='utf-8', newline='') as f:
         reader = csv.DictReader(f, delimiter='\t', fieldnames=fieldnames)
