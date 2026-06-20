@@ -28,7 +28,6 @@ import re
 import csv
 import json
 import os
-import string
 import random
 import unicodedata
 from collections import defaultdict
@@ -239,7 +238,7 @@ def remove_transcript_tags(text: str) -> str:
     return re.sub(r'\[[^\]]*\]|\([^)]*\)|\{[^}]*\}|<[^>]*>', ' ', text)
 
 def remove_punctuation(text: str) -> str:
-    return text.translate(str.maketrans('', '', string.punctuation))
+    return re.sub(r'[^\w\s]', ' ', text)
 
 def normalize_whitespace(text: str) -> str:
     return re.sub(r'\s+', ' ', text).strip()
@@ -270,7 +269,7 @@ def contains_arabic(text: str) -> bool:
 
 def normalize_common(text: str) -> str:
     text = remove_transcript_tags(text)
-    # Unicode NFC normalization
+    # Unicode NFKC normalization
     text = unicodedata.normalize("NFKC", text)
     text = remove_invisible_chars(text)
     text = remove_punctuation(text)
@@ -778,13 +777,6 @@ def process_id_cv(mode='full', manifest_dir=None):
             data = json.load(f)
             split_records = data['split_records']
             all_recs = data['all_records']
-
-        # if manifest_dir is None:
-        #     manifest_dir = os.path.join(BASE_OUT, "manifests")
-
-        # save_manifest(dataset_key, 'id', 'predetermined_full',
-        #               'Mozilla CV ID v24.0 - TSV train/dev/test preserved',
-        #               split_records, manifest_dir=manifest_dir)
 
         return {
             'split_records': split_records,

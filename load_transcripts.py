@@ -20,7 +20,6 @@ from pathlib import Path
 
 
 # ─── SHARED UTILITIES ────────────────────────────────────────────────────────
-
 def _try_parquet_import():
     """Lazy import check for parquet dependencies."""
     try:
@@ -32,9 +31,7 @@ def _try_parquet_import():
             f"Parquet loader requires: pip install pyarrow soundfile pandas\n{e}"
         )
 
-
 # ─── INDONESIAN ──────────────────────────────────────────────────────────────
-
 def load_mozilla_cv(tsv_path: str) -> dict:
     """
     Load Mozilla Common Voice TSV.

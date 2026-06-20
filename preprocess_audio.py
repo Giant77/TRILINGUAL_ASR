@@ -20,7 +20,6 @@ CONFIG = {
     "silence_min_len_ms": 500,
 }
 
-
 # ─── SEGMENTED DATASET PROCESSORS ────────────────────────────────────────────
 def process_escwa_segmented(wav_dir: str, text_map: dict,
                               seg_map: dict, output_dir: str) -> list:
@@ -94,7 +93,6 @@ def convert_to_wav(input_path: str, output_path: str) -> bool:
         "-loglevel", "error"
     ]
     result = subprocess.run(cmd, capture_output=True)
-    # result = subprocess.run(cmd)
 
     if result.returncode != 0:
         stderr_msg = result.stderr.decode().strip() if result.stderr else "No stderr output"
@@ -120,7 +118,6 @@ SHORT_SEGMENT_RECORDS = defaultdict(list)
 
 def _record_short_segment(lang: str, record: dict) -> None:
     SHORT_SEGMENT_RECORDS[lang].append(record)
-
 
 def save_short_segment_manifests(manifest_dir: str) -> None:
     os.makedirs(manifest_dir, exist_ok=True)
@@ -504,8 +501,6 @@ def process_timestamp_segments(data_dir: str, segment_records: list,
     print(f"  {dataset_name}: {len(results)} segments extracted, "
           f"{skipped} skipped")
     return results
-
-from tqdm import tqdm
 
 def process_indocsc_segmented(
         wav_dir: str,
